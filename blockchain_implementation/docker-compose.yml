@@ -1,0 +1,46 @@
+version: '3.2'
+services:
+    alice:
+        build: .
+        container_name: alice
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/blockchain_implementation
+        image: blockchain-node
+    bob:
+        build: .
+        container_name: bob
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/blockchain_implementation
+        image: blockchain-node
+    connor:
+        build: .
+        container_name: connor
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/blockchain_implementation
+        image: blockchain-node
+    miner1:
+        build: .
+        container_name: miner1
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/blockchain_implementation
+        image: blockchain-node
+    miner2:
+        build: .
+        container_name: miner2
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/blockchain_implementation
+        image: blockchain-node
