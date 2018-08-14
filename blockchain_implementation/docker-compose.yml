@@ -44,3 +44,12 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+    seed:
+        build: .
+        container_name: seed 
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/blockchain_implementation
+        image: blockchain-node

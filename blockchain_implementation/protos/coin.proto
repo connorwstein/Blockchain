@@ -1,0 +1,15 @@
+syntax = "proto3";
+package protos;
+
+message Transaction {
+    string transaction = 1;
+}
+
+message Empty {
+}
+
+service Transactions {
+    rpc ReceiveTransaction(Transaction) returns (Empty) {} 
+    rpc SendTransaction(Transaction) returns (Empty) {}
+}
+

@@ -5,14 +5,20 @@ import (
     "fmt"
 	"bytes"
 	"encoding/binary"
+    "golang.org/x/net/context"
+    "google.golang.org/grpc"
+    "strings"
+    "net"
+    pb "./protos"
 )
+
+type server struct{}
 
 type Block struct {
 	blockNumber int
 	nonce uint32 // 4 byte nonce in bitcoin
 	data []byte
 	hash []byte // 32 bytes for SHA256 digest
-	prevHash *[]byte // Pointer to the previous block's hash
 	prevBlock *Block // So we can walk the DAG
 }
 
@@ -25,7 +31,7 @@ func (block *Block) GetNonceBytes() []byte {
 func (block *Block) ComputeHash() []byte {
 	toHash := make([]byte, 0)
 	toHash = append(toHash, block.GetNonceBytes()...)
-	toHash = append(toHash, *block.prevHash...)
+	toHash = append(toHash, block.prevBlock.hash...)
 	toHash = append(toHash, block.data...)
 	sum := sha256.Sum256(toHash)
 	return sum[:]
@@ -69,4 +75,30 @@ func PrintBlockChain(current *Block) {
 		currentBlock = currentBlock.prevBlock
 	}
 	fmt.Println(currentBlock.ToString())
+}
+func startGrpc() {
+    lis, err := net.Listen("tcp", strings.Join([]string{":", "4000"}, ""))
+    if err != nil {
+        fmt.Printf("gRPC server failed to start listening: %v", err)
+    }
+    s := grpc.NewServer()
+    pb.RegisterTransactionsServer(s, &server{})
+//     // Register reflection service on gRPC server.
+//     reflection.Register(s)
+    if err := s.Serve(lis); err != nil {
+        fmt.Printf("gRPC server failed to start serving: %v", err)
+    }
+}
+func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
+    var reply pb.Empty
+    return &reply, nil
+}
+
+func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
+    var reply pb.Empty
+    return &reply, nil
+}
+
+func main() {
+    startGrpc() 
 }
