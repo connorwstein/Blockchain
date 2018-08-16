@@ -46,3 +46,12 @@ func TestReceive(t *testing.T) {
     }
     // TODO: Simulate receiving a bunch of transactions and accumulating them into a block 
 }
+
+func TestSend(t *testing.T) {
+    s := server{}
+    req := pb.Transaction{Transaction: "helloworld"}
+    _, err := s.SendTransaction(context.Background(), &req)
+    if err != nil {
+        t.Errorf("HelloTest(%v) got unexpected error")
+    }
+}

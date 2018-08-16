@@ -34,7 +34,7 @@ func (m *Transaction) Reset()         { *m = Transaction{} }
 func (m *Transaction) String() string { return proto.CompactTextString(m) }
 func (*Transaction) ProtoMessage()    {}
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_e328507328b8d084, []int{0}
+	return fileDescriptor_coin_05ebcd984c246951, []int{0}
 }
 func (m *Transaction) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Transaction.Unmarshal(m, b)
@@ -71,7 +71,7 @@ func (m *Empty) Reset()         { *m = Empty{} }
 func (m *Empty) String() string { return proto.CompactTextString(m) }
 func (*Empty) ProtoMessage()    {}
 func (*Empty) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_e328507328b8d084, []int{1}
+	return fileDescriptor_coin_05ebcd984c246951, []int{1}
 }
 func (m *Empty) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Empty.Unmarshal(m, b)
@@ -91,9 +91,71 @@ func (m *Empty) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Empty proto.InternalMessageInfo
 
+type Hello struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Hello) Reset()         { *m = Hello{} }
+func (m *Hello) String() string { return proto.CompactTextString(m) }
+func (*Hello) ProtoMessage()    {}
+func (*Hello) Descriptor() ([]byte, []int) {
+	return fileDescriptor_coin_05ebcd984c246951, []int{2}
+}
+func (m *Hello) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Hello.Unmarshal(m, b)
+}
+func (m *Hello) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Hello.Marshal(b, m, deterministic)
+}
+func (dst *Hello) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Hello.Merge(dst, src)
+}
+func (m *Hello) XXX_Size() int {
+	return xxx_messageInfo_Hello.Size(m)
+}
+func (m *Hello) XXX_DiscardUnknown() {
+	xxx_messageInfo_Hello.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Hello proto.InternalMessageInfo
+
+type Ack struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Ack) Reset()         { *m = Ack{} }
+func (m *Ack) String() string { return proto.CompactTextString(m) }
+func (*Ack) ProtoMessage()    {}
+func (*Ack) Descriptor() ([]byte, []int) {
+	return fileDescriptor_coin_05ebcd984c246951, []int{3}
+}
+func (m *Ack) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Ack.Unmarshal(m, b)
+}
+func (m *Ack) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Ack.Marshal(b, m, deterministic)
+}
+func (dst *Ack) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Ack.Merge(dst, src)
+}
+func (m *Ack) XXX_Size() int {
+	return xxx_messageInfo_Ack.Size(m)
+}
+func (m *Ack) XXX_DiscardUnknown() {
+	xxx_messageInfo_Ack.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Ack proto.InternalMessageInfo
+
 func init() {
 	proto.RegisterType((*Transaction)(nil), "protos.Transaction")
 	proto.RegisterType((*Empty)(nil), "protos.Empty")
+	proto.RegisterType((*Hello)(nil), "protos.Hello")
+	proto.RegisterType((*Ack)(nil), "protos.Ack")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -103,6 +165,70 @@ var _ grpc.ClientConn
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
+
+// PeeringClient is the client API for Peering service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type PeeringClient interface {
+	Connect(ctx context.Context, in *Hello, opts ...grpc.CallOption) (*Ack, error)
+}
+
+type peeringClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewPeeringClient(cc *grpc.ClientConn) PeeringClient {
+	return &peeringClient{cc}
+}
+
+func (c *peeringClient) Connect(ctx context.Context, in *Hello, opts ...grpc.CallOption) (*Ack, error) {
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, "/protos.Peering/Connect", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeeringServer is the server API for Peering service.
+type PeeringServer interface {
+	Connect(context.Context, *Hello) (*Ack, error)
+}
+
+func RegisterPeeringServer(s *grpc.Server, srv PeeringServer) {
+	s.RegisterService(&_Peering_serviceDesc, srv)
+}
+
+func _Peering_Connect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Hello)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeeringServer).Connect(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/protos.Peering/Connect",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeeringServer).Connect(ctx, req.(*Hello))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Peering_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "protos.Peering",
+	HandlerType: (*PeeringServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Connect",
+			Handler:    _Peering_Connect_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "coin.proto",
+}
 
 // TransactionsClient is the client API for Transactions service.
 //
@@ -201,17 +327,20 @@ var _Transactions_serviceDesc = grpc.ServiceDesc{
 	Metadata: "coin.proto",
 }
 
-func init() { proto.RegisterFile("coin.proto", fileDescriptor_coin_e328507328b8d084) }
+func init() { proto.RegisterFile("coin.proto", fileDescriptor_coin_05ebcd984c246951) }
 
-var fileDescriptor_coin_e328507328b8d084 = []byte{
-	// 132 bytes of a gzipped FileDescriptorProto
+var fileDescriptor_coin_05ebcd984c246951 = []byte{
+	// 181 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x4a, 0xce, 0xcf, 0xcc,
 	0xd3, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0x03, 0x53, 0xc5, 0x4a, 0xfa, 0x5c, 0xdc, 0x21,
 	0x45, 0x89, 0x79, 0xc5, 0x89, 0xc9, 0x25, 0x99, 0xf9, 0x79, 0x42, 0x0a, 0x5c, 0xdc, 0x25, 0x08,
 	0xae, 0x04, 0xa3, 0x02, 0xa3, 0x06, 0x67, 0x10, 0xb2, 0x90, 0x12, 0x3b, 0x17, 0xab, 0x6b, 0x6e,
-	0x41, 0x49, 0xa5, 0x51, 0x33, 0x23, 0x17, 0x0f, 0x92, 0xd6, 0x62, 0x21, 0x2b, 0x2e, 0xa1, 0xa0,
-	0xd4, 0xe4, 0xd4, 0xcc, 0xb2, 0x54, 0x64, 0x13, 0x85, 0x21, 0x16, 0x16, 0xeb, 0x21, 0x09, 0x4a,
-	0xf1, 0xc2, 0x04, 0xc1, 0x46, 0x29, 0x31, 0x08, 0x99, 0x73, 0xf1, 0x07, 0xa7, 0xe6, 0xa5, 0x90,
-	0xac, 0x31, 0x09, 0xe2, 0x0f, 0x63, 0x40, 0x00, 0x00, 0x00, 0xff, 0xff, 0x9b, 0xca, 0x94, 0x29,
-	0xdc, 0x00, 0x00, 0x00,
+	0x41, 0x49, 0x25, 0x88, 0xe1, 0x91, 0x9a, 0x93, 0x93, 0xaf, 0xc4, 0xca, 0xc5, 0xec, 0x98, 0x9c,
+	0x6d, 0x64, 0xc4, 0xc5, 0x1e, 0x90, 0x9a, 0x5a, 0x94, 0x99, 0x97, 0x2e, 0xa4, 0xce, 0xc5, 0xee,
+	0x9c, 0x9f, 0x97, 0x97, 0x9a, 0x5c, 0x22, 0xc4, 0x0b, 0xb1, 0xaf, 0x58, 0x0f, 0xac, 0x56, 0x8a,
+	0x1b, 0xc6, 0x75, 0x4c, 0xce, 0x56, 0x62, 0x30, 0x6a, 0x66, 0xe4, 0xe2, 0x41, 0xb2, 0xbe, 0x58,
+	0xc8, 0x8a, 0x4b, 0x28, 0x28, 0x35, 0x39, 0x35, 0xb3, 0x2c, 0x15, 0xd9, 0x55, 0xc2, 0x30, 0x5d,
+	0x48, 0x82, 0x52, 0x70, 0x93, 0x21, 0xce, 0x61, 0x10, 0x32, 0xe7, 0xe2, 0x0f, 0x4e, 0xcd, 0x4b,
+	0x21, 0x59, 0x63, 0x12, 0x24, 0x2c, 0x8c, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x82, 0xb1, 0xb6,
+	0x85, 0x20, 0x01, 0x00, 0x00,
 }

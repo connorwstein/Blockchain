@@ -1,3 +1,9 @@
+#
+#   miner2 -- Alice -- bob
+#               |
+#             Connor
+#               |
+#             miner1
 version: '3.2'
 services:
     alice:
@@ -8,6 +14,10 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+        networks:
+            - testnet1
+            - testnet2
+            - testnet3
     bob:
         build: .
         container_name: bob
@@ -17,6 +27,8 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+        networks:
+            - testnet2
     connor:
         build: .
         container_name: connor
@@ -26,6 +38,9 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+        networks:
+            - testnet3
+            - testnet4
     miner1:
         build: .
         container_name: miner1
@@ -35,6 +50,8 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+        networks:
+            - testnet4
     miner2:
         build: .
         container_name: miner2
@@ -44,6 +61,8 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+        networks:
+            - testnet1
     seed:
         build: .
         container_name: seed 
@@ -53,3 +72,17 @@ services:
               source: .
               target: /opt/blockchain_implementation
         image: blockchain-node
+        networks:
+            - testnet1
+            - testnet2
+            - testnet3
+            - testnet4
+networks:
+  testnet1:
+    driver: bridge
+  testnet2:
+    driver: bridge
+  testnet3:
+    driver: bridge
+  testnet4:
+    driver: bridge

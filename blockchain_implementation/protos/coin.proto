@@ -8,6 +8,17 @@ message Transaction {
 message Empty {
 }
 
+message Hello {
+}
+
+message Ack {
+}
+
+service Peering {
+    // Could add version exchange during peer connection
+    rpc Connect(Hello) returns (Ack) {}
+}
+
 service Transactions {
     rpc ReceiveTransaction(Transaction) returns (Empty) {} 
     rpc SendTransaction(Transaction) returns (Empty) {}
