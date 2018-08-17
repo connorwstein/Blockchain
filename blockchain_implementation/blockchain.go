@@ -1,14 +1,17 @@
 package main
 
 import (
-    "crypto/sha256"
+//     "crypto/sha256"
     "fmt"
     "time"
-	"bytes"
+// 	"bytes"
     "errors"
-	"encoding/binary"
+// 	"encoding/binary"
     "golang.org/x/net/context"
     "google.golang.org/grpc"
+    "crypto/ecdsa"
+    "crypto/rand"
+    "crypto/elliptic"
     "net"
     "strings"
     "google.golang.org/grpc/peer"
@@ -17,13 +20,34 @@ import (
 
 const (
     PORT = "8333"
-    PEER_CHECK = 5000
+    PEER_CHECK = 2000
 )
 
 var (
     // Don't have a large list of peers, no need to use pointers to structs
     peerList map[string]BlockchainPeer
     ips []net.IPNet
+    // TODO: this stuff can probably be moved into its own type 
+    // Mempool is a big map of unconfirmed transactions
+    // keyed by their stringified
+    // Used pointers because it could be large
+    // Use a map because we will have to remove transactions
+    // from here based on new blocks received
+    memPool map[string]*pb.Transaction
+    // Giant linked list (with potentially multiple children
+    // per node in the case of a temporary fork)
+    // Keyed on block hash, value is a pointer to a block  
+    // This makes it easy to look up a specific block
+    // Need a way to know which blocks are part of the our main chain
+    // and which ones are secondary/other competing chains
+    blockChain map[string]*pb.Block
+    // Maintain a list of blocks which are the tips of various chains, one of which is the main chain?
+    // Also need to maintain a list of orphaned blocks to be added to chain once their parent arrives
+    // For simplicity lets assume that length of chain represents work that went into it
+    // (not always true as forks can span re-targets (difficulty increases). This way we can just check the 
+    // height in the block and use that.
+    tipsOfChains []*pb.Block 
+    key *ecdsa.PrivateKey
 )
 
 type server struct{}
@@ -34,67 +58,15 @@ type BlockchainPeer struct {
     sourceIP string
 }
 
-type Block struct {
-	blockNumber int
-	nonce uint32 // 4 byte nonce in bitcoin
-	data []byte
-	hash []byte // 32 bytes for SHA256 digest
-	prevBlock *Block // So we can walk the DAG
+// Make sure block is well formed
+// and all transactions are valid in the block
+func verifyNewBlock(block *pb.Block) bool {
+    return true
 }
 
-func (block *Block) GetNonceBytes() []byte {
-	nonceBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(nonceBytes, block.nonce)
-	return nonceBytes
-}
-
-func (block *Block) ComputeHash() []byte {
-	toHash := make([]byte, 0)
-	toHash = append(toHash, block.GetNonceBytes()...)
-	toHash = append(toHash, block.prevBlock.hash...)
-	toHash = append(toHash, block.data...)
-	sum := sha256.Sum256(toHash)
-	return sum[:]
-}
-
-func (block *Block) Mine() {
-	// Increment the nonce until the hash starts with 4 zeros.
-    block.hash = block.ComputeHash() 
-	for {
-		if ! block.IsValid() {
-			// Increment the nonce, append the block data to it then hash it
-			block.nonce += 1
-    		block.hash = block.ComputeHash()
-		} else {
-			break
-		}
-	}
-}
-
-func (block *Block) Modify(newData []byte) {
-	// Add some new data and recompute the blocks hash
-	block.data = newData
-	block.hash = block.ComputeHash()
-}
-
-func (block *Block) IsValid() bool {
-	// Check if my block is valid i.e. hash starts with a zero 
-	// And the upstream block must be valid unless it is the genesis block
-	return bytes.Equal(block.hash[0:1], []byte{0x00}) && (block.prevBlock == nil || block.prevBlock.IsValid())
-}
-
-func (block *Block) ToString() string {
-	return fmt.Sprintf("Block Number %v Data %s Validity %v", block.blockNumber, string(block.data), block.IsValid())
-}
-
-func PrintBlockChain(current *Block) {
-	// From the current block, walk all the way to the genesis block
-	currentBlock := current
-	for currentBlock.prevBlock != nil {
-		fmt.Println(currentBlock.ToString())
-		currentBlock = currentBlock.prevBlock
-	}
-	fmt.Println(currentBlock.ToString())
+// Walk all the tips of the chains looking for the longest one
+func getLongestChain() *pb.Block {
+    return nil
 }
 
 func startGrpc() {
@@ -106,6 +78,7 @@ func startGrpc() {
     pb.RegisterTransactionsServer(s, &server{})
     pb.RegisterPeeringServer(s, &server{})
     pb.RegisterStateServer(s, &server{})
+    pb.RegisterWalletServer(s, &server{})
     if err := s.Serve(lis); err != nil {
         fmt.Printf("gRPC server failed to start serving: %v", err)
     }
@@ -121,6 +94,12 @@ func getOutgoingIP(peerIP string) (string, error) {
     }
     // Shouldn't happen
     return "", errors.New("Can't find outgoing IP for peer") 
+}
+
+func addTransactionToMemPool(transaction *pb.Transaction) {
+    tx := GetHash(transaction)
+    memPool[string(tx[:])] = transaction
+    fmt.Printf("Added transaction to mempool %v\n", memPool)
 }
 
 // Need to verify a transaction before propagating. This ensures that invalid transactions
@@ -140,10 +119,9 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
             senderAddr = nil
             fmt.Println("Receive Transaction %v (no sender IP)", in)
     }
-    // If we are a miner, then we need to accumulate these transactions and build a block
-    // to verify then broadcast
-    // Otherwise we just forward the transactions along to our peers as part of flooding
-    // forward to everyone except who we received it from 
+    // TODO: Verify before adding to mempool and relaying
+    TransactionVerify(in) 
+    addTransactionToMemPool(in) 
     for _, myPeer := range peerList {
         if senderAddr == nil || myPeer.peerIP == senderAddr.IP.String() {
             // Don't send back to the receiver
@@ -160,6 +138,8 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
 func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
     fmt.Printf("Send transaction %v\n", in)
+//     signTransaction(in)
+    addTransactionToMemPool(in) 
     // Send this transaction to all the list of clients we are connected to
     // Need to include the source, so that the peer doesn't send it back to us
     for _, myPeer := range peerList {
@@ -175,15 +155,36 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
 }
 
 func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsServer) error {
-    var t pb.Transaction
+//     var t pb.Transaction
     fmt.Println("Get transactions")
-    stream.Send(&t)
+    // Walk the mempool 
+    for _, transaction := range memPool {
+        fmt.Println(transaction)
+        stream.Send(transaction)
+    }
     return nil
 }
 
 func (s *server) Connect(ctx context.Context, in *pb.Hello) (*pb.Ack, error) {
     var reply pb.Ack
     fmt.Println("Peer connect")
+    return &reply, nil
+}
+
+func (s *server) NewAccount(ctx context.Context, in *pb.Account) (*pb.Empty, error) {
+    var reply pb.Empty
+    fmt.Println("New Account for: ", in.Name)
+    // Create a key pair 
+    // Get a keypair
+    // Need the curve for our trapdoor
+    // Allocate memory for a private key
+    key = new(ecdsa.PrivateKey)
+    // Generate the keypair based on the curve
+    key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+    var pubkey ecdsa.PublicKey = key.PublicKey
+    fmt.Println("Private Key :", key)
+    fmt.Println("Public Key :", pubkey)
+    // TODO: Maybe we return the public key so user knows
     return &reply, nil
 }
 
@@ -249,6 +250,8 @@ func main() {
                          "172.26.0.4", "172.25.0.2", "172.25.0.3", 
                          "172.24.0.2", "172.24.0.3"}
     nodeList = removeOurAddress(nodeList)
+    memPool = make(map[string]*pb.Transaction, 0)
+
     // Problem: if they all have a different number of peers but need to connect to all of them because
     // the whole network will not be reachable. However, since we have a list of the all the nodes ips (cheating) 
     // you can periodically try to connect to all of them. This way eventually everyone will be peering with everyone they can.

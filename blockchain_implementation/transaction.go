@@ -5,7 +5,7 @@ import (
     "crypto/sha256"
 //     "crypto/ecdsa"
     "encoding/binary"
-    "crypto/elliptic"
+//     "crypto/elliptic"
 //     "math/big"
     pb "./protos"
 )
@@ -14,7 +14,7 @@ import (
 // 1. Signature came from the private key associated with the public key of the sender
 // 2. The referenced UTXO exists and is not already spent
 // 3. Sum of the input UTXO is larger than the output
-func Verify(transaction pb.Transaction, curve elliptic.Curve) bool {
+func TransactionVerify(transaction *pb.Transaction) bool {
     // Check that the signature came from the private key associated with the public key of the sender
     // Signature is simply R and S (both 32 byte numbers) concatentated
     // Convert to big ints
@@ -38,7 +38,7 @@ func TransactionToString(transaction pb.Transaction) string {
     return fmt.Sprintf("%v --> %v $%v", transaction.InputUTXO, transaction.ReceiverPubKey, transaction.Value)
 }
 
-func GetHash(transaction pb.Transaction) []byte {
+func GetHash(transaction *pb.Transaction) []byte {
     // SHA hash is 32 bytes
     // TODO: use a writer here
 	toHash := make([]byte, 0)

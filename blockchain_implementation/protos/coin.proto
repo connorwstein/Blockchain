@@ -9,6 +9,8 @@ package protos;
 // which when mined introduces new coin from thin air (no inputUTXO)
 message Transaction {
     // UTXO is a transaction hash
+    // Unless it is money creation which we can signify as 
+    // zeroed bytes for example
     bytes inputUTXO = 1;
     // Pub key associated with source account
     // account must be part of the UTXO
@@ -20,14 +22,21 @@ message Transaction {
     uint64 value = 5;
 }
 
-// Hash of the block is made by hashing the blockheader twice
 message BlockHeader {
     bytes prevBlockHash = 1;
     bytes merkleRoot = 2;
     uint32 timeStamp = 3; // seconds from epoch
     uint32 difficultyTarget = 4;
     uint32 nonce = 5; 
+    uint64 height = 6; // essentially the block number 
 }
+
+// Hash of the block is made by hashing the blockheader twice
+message Block {
+    BlockHeader header = 1;
+    repeated Transaction transactions = 2;
+}
+
 
 message Empty {
 }
@@ -53,4 +62,12 @@ service State {
     // lets use a stream
     rpc GetTransactions(Empty) returns (stream Transaction) {}
     //rpc GetBlocks(Empty) returns (repeated Block) {}
+}
+
+message Account {
+    string name = 1;
+} 
+
+service Wallet {
+    rpc NewAccount(Account) returns (Empty) {}
 }
