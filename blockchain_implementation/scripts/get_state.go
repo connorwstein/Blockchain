@@ -6,7 +6,7 @@ import (
     "flag"
     pb "../protos"
     "google.golang.org/grpc"
-    "strings"
+//     "strings"
     "golang.org/x/net/context"
     "io"
     "strconv"
@@ -45,7 +45,7 @@ func send(amount int, destination string) {
     c := pb.NewTransactionsClient(conn)
     fmt.Println(strconv.Itoa(amount))
     _, err := c.SendTransaction(context.Background(), &pb.Transaction{
-                                Transaction: strings.Join([]string{strconv.Itoa(amount), destination}, ":")})
+                                Value: uint64(amount)})
     if err != nil {
         fmt.Println("Error sending transaction")
     }

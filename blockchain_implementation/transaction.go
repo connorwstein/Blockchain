@@ -3,51 +3,49 @@ package main
 import (
     "fmt"
     "crypto/sha256"
-    "crypto/ecdsa"
+//     "crypto/ecdsa"
     "encoding/binary"
     "crypto/elliptic"
-    "math/big"
+//     "math/big"
+    pb "./protos"
 )
 
-var PubKeyCurve elliptic.Curve  
-
-type Transaction struct {
-    hash []byte // Hash of the whole transaction, to be used in the merkle tree in a block
-    signature []byte // Depends on private key associated with the sender, signed using ECC
-    sender []byte // Pub key 
-    receiver []byte // Pub key
-    value uint32 
-}
-
-func (transaction *Transaction) Verify() bool {
+// Check
+// 1. Signature came from the private key associated with the public key of the sender
+// 2. The referenced UTXO exists and is not already spent
+// 3. Sum of the input UTXO is larger than the output
+func Verify(transaction pb.Transaction, curve elliptic.Curve) bool {
     // Check that the signature came from the private key associated with the public key of the sender
     // Signature is simply R and S (both 32 byte numbers) concatentated
     // Convert to big ints
     // Pub key will be concatenation of X and Y big ints converted to bytes 
-    pubKey := ecdsa.PublicKey{Curve: PubKeyCurve}
-    pubKey.X = new(big.Int)
-    pubKey.Y = new(big.Int)
-    pubKey.X.SetBytes(transaction.sender[:32])
-    pubKey.Y.SetBytes(transaction.sender[32:])
-    r := new(big.Int)
-    r.SetBytes(transaction.signature[:32])
-    s := new(big.Int)
-    s.SetBytes(transaction.signature[32:])
-    verifystatus := ecdsa.Verify(&pubKey, transaction.GetHash(), r, s)
-    return verifystatus 
+//     pubKey := ecdsa.PublicKey{Curve: curve}
+//     pubKey.X = new(big.Int)
+//     pubKey.Y = new(big.Int)
+//     pubKey.X.SetBytes(transaction.SenderPubKey[:32])
+//     pubKey.Y.SetBytes(transaction.SenderPubKey[32:])
+//     r := new(big.Int)
+//     r.SetBytes(transaction.Signature[:32])
+//     s := new(big.Int)
+//     s.SetBytes(transaction.Signature[32:])
+//     fmt.Println(r, s)
+//     verifystatus := ecdsa.Verify(&pubKey, GetHash(transaction), r, s)
+//     return verifystatus 
+    return true
 }
 
-func (transaction *Transaction) ToString() string {
-    return fmt.Sprintf("%v --> %v $%v", transaction.sender, transaction.receiver, transaction.value)
+func TransactionToString(transaction pb.Transaction) string {
+    return fmt.Sprintf("%v --> %v $%v", transaction.InputUTXO, transaction.ReceiverPubKey, transaction.Value)
 }
 
-func (transaction *Transaction) GetHash() []byte {
+func GetHash(transaction pb.Transaction) []byte {
     // SHA hash is 32 bytes
+    // TODO: use a writer here
 	toHash := make([]byte, 0)
-	toHash = append(toHash, []byte(transaction.sender)...)
-	toHash = append(toHash, []byte(transaction.receiver)...)
-    value := make([]byte, 4)
-	binary.LittleEndian.PutUint32(value, transaction.value)
+	toHash = append(toHash, []byte(transaction.InputUTXO)...)
+	toHash = append(toHash, []byte(transaction.ReceiverPubKey)...)
+    value := make([]byte, 8)
+	binary.LittleEndian.PutUint64(value, transaction.Value)
 	toHash = append(toHash, value...)
 	sum := sha256.Sum256(toHash)
     return sum[:]

@@ -5,6 +5,7 @@ import (
     "fmt"
     "time"
 	"bytes"
+    "errors"
 	"encoding/binary"
     "golang.org/x/net/context"
     "google.golang.org/grpc"
@@ -16,12 +17,16 @@ import (
 
 const (
     PORT = "8333"
+    PEER_CHECK = 5000
+)
+
+var (
+    // Don't have a large list of peers, no need to use pointers to structs
+    peerList map[string]BlockchainPeer
+    ips []net.IPNet
 )
 
 type server struct{}
-
-var peerList []*BlockchainPeer
-var ips []net.IPNet
 
 type BlockchainPeer struct {
     conn *grpc.ClientConn 
@@ -106,55 +111,65 @@ func startGrpc() {
     }
 }
 
-func getOutgoingIP(peerIP string) string {
+func getOutgoingIP(peerIP string) (string, error) {
     // Determine which one of our IPs is in the same network as the peer
     ipPeer := net.ParseIP(peerIP)
-    fmt.Println(ipPeer)
     for _, ip := range ips {
-        fmt.Println(ip)
         if ip.Contains(ipPeer) {
-            return ip.IP.String()
+            return ip.IP.String(), nil
         }
     }
-    return ""
+    // Shouldn't happen
+    return "", errors.New("Can't find outgoing IP for peer") 
 }
 
+// Need to verify a transaction before propagating. This ensures that invalid transactions
+// are dropped at the first node which receives it
 func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
+    var senderAddr *net.TCPAddr
     peerIP, _ := peer.FromContext(ctx)
-    // TODO: Make this safer
-    senderAddr := peerIP.Addr.(*net.TCPAddr)
-    fmt.Printf("Receive Transaction %v %v", in, senderAddr.IP.String())
+    if peerIP == nil {
+        return &reply, nil
+    }
+    switch senderAddr := peerIP.Addr.(type) {
+        case *net.TCPAddr:
+            // Expected case
+            fmt.Printf("Receive Transaction %v %v", in, senderAddr.IP.String())
+        default:
+            senderAddr = nil
+            fmt.Println("Receive Transaction %v (no sender IP)", in)
+    }
     // If we are a miner, then we need to accumulate these transactions and build a block
     // to verify then broadcast
     // Otherwise we just forward the transactions along to our peers as part of flooding
     // forward to everyone except who we received it from 
-    for _, bcPeer := range peerList {
-        if bcPeer.peerIP == senderAddr.IP.String() {
+    for _, myPeer := range peerList {
+        if senderAddr == nil || myPeer.peerIP == senderAddr.IP.String() {
             // Don't send back to the receiver
             continue
         }
-        ipAddr, _ := net.ResolveIPAddr("ip", bcPeer.sourceIP)
+        ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
         ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: ipAddr})
-        c := pb.NewTransactionsClient(bcPeer.conn)
-        c.ReceiveTransaction(ctx, &pb.Transaction{Transaction: "test"})
+        c := pb.NewTransactionsClient(myPeer.conn)
+        c.ReceiveTransaction(ctx, in)
     }
     return &reply, nil
 }
 
 func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
-    fmt.Printf("Send Transaction %v\n", in.Transaction)
+    fmt.Printf("Send transaction %v\n", in)
     // Send this transaction to all the list of clients we are connected to
     // Need to include the source, so that the peer doesn't send it back to us
-    for _, bcPeer := range peerList {
+    for _, myPeer := range peerList {
         // Find which one of our IP addresses is in the same network as the peer
-        ipAddr, _ := net.ResolveIPAddr("ip", bcPeer.sourceIP)
+        ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
         // This cast works because ipAddr is a pointer and the pointer to ipAddr does implement 
         // the Addr interface
         ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: ipAddr})
-        c := pb.NewTransactionsClient(bcPeer.conn)
-        c.ReceiveTransaction(ctx, &pb.Transaction{Transaction: "test"})
+        c := pb.NewTransactionsClient(myPeer.conn)
+        c.ReceiveTransaction(ctx, in)
     }
     return &reply, nil
 }
@@ -162,7 +177,6 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
 func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsServer) error {
     var t pb.Transaction
     fmt.Println("Get transactions")
-    t.Transaction = "test transaction 1"
     stream.Send(&t)
     return nil
 }
@@ -174,30 +188,28 @@ func (s *server) Connect(ctx context.Context, in *pb.Hello) (*pb.Ack, error) {
 }
 
 func connectToPeers(nodeList []string) {
-    // Keep trying to connect until you have at least one peer
-    for {
-        for _, node := range nodeList {
-            conn, err := grpc.Dial(strings.Join([]string{node, ":", PORT}, ""), grpc.WithInsecure())
-            if err != nil {
-                fmt.Printf("Failed to connect to gRPC server: %v", err)
-            } else {
-                client := pb.NewPeeringClient(conn)
-                ctx, _ := context.WithTimeout(context.Background(), 500 * time.Millisecond)
-                _, err = client.Connect(ctx, &pb.Hello{})
-                if err == nil {
-                    // Save that connection, will send new transactions to peers to flood the network
-                    fmt.Println("node ", node)
-                    peer := BlockchainPeer{conn: conn, peerIP: node, sourceIP: getOutgoingIP(node)}
-                    peerList = append(peerList, &peer)
-                }
+    for _, node := range nodeList {
+        if _, ok := peerList[node]; ok {
+            continue    
+        }
+        conn, err := grpc.Dial(strings.Join([]string{node, ":", PORT}, ""), grpc.WithInsecure())
+        if err != nil {
+            fmt.Printf("Failed to connect to gRPC server: %v", err)
+        } else {
+            client := pb.NewPeeringClient(conn)
+            ctx, _ := context.WithTimeout(context.Background(), 500 * time.Millisecond)
+            _, err = client.Connect(ctx, &pb.Hello{})
+            if err == nil {
+                // Save that connection, will send new transactions to peers to flood the network
+                fmt.Printf("New peer %v!\n", node)
+                outgoingIP, _ := getOutgoingIP(node)
+                peerList[node] = BlockchainPeer{conn: conn, peerIP: node, sourceIP: outgoingIP}
             }
         }
-        if len(peerList) > 0 {
-            for _, peer := range peerList {
-                fmt.Printf("Peer %v source %v\n", peer.peerIP, peer.sourceIP)
-            }
-            break
-        }
+    }
+    fmt.Println("My peer list: ")
+    for _, myPeer := range peerList {
+        fmt.Printf("Peer %v outgoing interface %v\n", myPeer.peerIP, myPeer.sourceIP)
     }
 }
 
@@ -214,11 +226,9 @@ func removeOurAddress(nodeList []string) []string {
             switch v := a.(type) {
             case *net.IPNet: 
                 if v.IP.To4() != nil {
-                    fmt.Println(v.IP)
                     ips = append(ips, *v)
                     for i, val := range nodeList {
                         if val == v.IP.String() {
-                            fmt.Println("Remove from nodeList", val)
                             nodeList = append(nodeList[:i], nodeList[i+1:]...)
                             break
                         }
@@ -232,19 +242,23 @@ func removeOurAddress(nodeList []string) []string {
 
 func main() {
     fmt.Println("Listening")
-    // TODO: Connect to a seed node to get a list of peers
-    // For now start with a hardcoded list of peers
-    // Try to connect to each peer in the list, and if successful save that connection 
-    // The graph will always be connected because for you to join, you have to peer with an existing node
-    // (aside from the very first node). Problem: what you have some network established then one of the nodes restarts
-    // and decides to peer with a set of nodes If you restart a node it will connect to nodes it had already connected
-    // to before. 
+    // TODO: pass an argument to indicate whether we are a miner or not
     ips = make([]net.IPNet, 0)
-    peerList = make([]*BlockchainPeer, 0)
+    peerList = make(map[string]BlockchainPeer, 0)
     nodeList := []string{"172.27.0.2", "172.27.0.3", "172.26.0.2", 
-                         "172.26.0.4", "172.25.0.2", "172.25.0.4", 
+                         "172.26.0.4", "172.25.0.2", "172.25.0.3", 
                          "172.24.0.2", "172.24.0.3"}
     nodeList = removeOurAddress(nodeList)
-    go connectToPeers(nodeList)
+    // Problem: if they all have a different number of peers but need to connect to all of them because
+    // the whole network will not be reachable. However, since we have a list of the all the nodes ips (cheating) 
+    // you can periodically try to connect to all of them. This way eventually everyone will be peering with everyone they can.
+    // In the real network you would ask some DNS seeds for stable nodes to connect to as peers for the first time.
+    ticker := time.NewTicker(PEER_CHECK * time.Millisecond)
+    go func() {
+        for _ = range ticker.C {
+            // TODO: handle peers dying (nice to have)
+            connectToPeers(nodeList)
+        }
+    }()
     startGrpc() 
 }

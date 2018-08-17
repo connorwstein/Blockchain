@@ -1,8 +1,32 @@
 syntax = "proto3";
 package protos;
 
+// Maybe look at adding the scripting functionality to 
+// unlock UTXOs
+// Each transaction references as input a UTXO from the existing
+// set of UTXOs
+// But how does it start? Every client knows about the genesis block
+// which when mined introduces new coin from thin air (no inputUTXO)
 message Transaction {
-    string transaction = 1;
+    // UTXO is a transaction hash
+    bytes inputUTXO = 1;
+    // Pub key associated with source account
+    // account must be part of the UTXO
+    //bytes senderPubKey = 2; 
+    // Destination of the UTXO
+    bytes receiverPubKey = 3;
+    // Ensures the private key associated with the public key in the inputUTXO was actually used to sign this 
+    bytes signature = 4;
+    uint64 value = 5;
+}
+
+// Hash of the block is made by hashing the blockheader twice
+message BlockHeader {
+    bytes prevBlockHash = 1;
+    bytes merkleRoot = 2;
+    uint32 timeStamp = 3; // seconds from epoch
+    uint32 difficultyTarget = 4;
+    uint32 nonce = 5; 
 }
 
 message Empty {
