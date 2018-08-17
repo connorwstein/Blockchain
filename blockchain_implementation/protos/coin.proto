@@ -24,3 +24,9 @@ service Transactions {
     rpc SendTransaction(Transaction) returns (Empty) {}
 }
 
+service State {
+    // Could be a huge number of blocks and transactions
+    // lets use a stream
+    rpc GetTransactions(Empty) returns (stream Transaction) {}
+    //rpc GetBlocks(Empty) returns (repeated Block) {}
+}

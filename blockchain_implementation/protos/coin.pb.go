@@ -34,7 +34,7 @@ func (m *Transaction) Reset()         { *m = Transaction{} }
 func (m *Transaction) String() string { return proto.CompactTextString(m) }
 func (*Transaction) ProtoMessage()    {}
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_05ebcd984c246951, []int{0}
+	return fileDescriptor_coin_d558dde849b2535f, []int{0}
 }
 func (m *Transaction) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Transaction.Unmarshal(m, b)
@@ -71,7 +71,7 @@ func (m *Empty) Reset()         { *m = Empty{} }
 func (m *Empty) String() string { return proto.CompactTextString(m) }
 func (*Empty) ProtoMessage()    {}
 func (*Empty) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_05ebcd984c246951, []int{1}
+	return fileDescriptor_coin_d558dde849b2535f, []int{1}
 }
 func (m *Empty) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Empty.Unmarshal(m, b)
@@ -101,7 +101,7 @@ func (m *Hello) Reset()         { *m = Hello{} }
 func (m *Hello) String() string { return proto.CompactTextString(m) }
 func (*Hello) ProtoMessage()    {}
 func (*Hello) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_05ebcd984c246951, []int{2}
+	return fileDescriptor_coin_d558dde849b2535f, []int{2}
 }
 func (m *Hello) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Hello.Unmarshal(m, b)
@@ -131,7 +131,7 @@ func (m *Ack) Reset()         { *m = Ack{} }
 func (m *Ack) String() string { return proto.CompactTextString(m) }
 func (*Ack) ProtoMessage()    {}
 func (*Ack) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_05ebcd984c246951, []int{3}
+	return fileDescriptor_coin_d558dde849b2535f, []int{3}
 }
 func (m *Ack) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Ack.Unmarshal(m, b)
@@ -170,6 +170,7 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type PeeringClient interface {
+	// Could add version exchange during peer connection
 	Connect(ctx context.Context, in *Hello, opts ...grpc.CallOption) (*Ack, error)
 }
 
@@ -192,6 +193,7 @@ func (c *peeringClient) Connect(ctx context.Context, in *Hello, opts ...grpc.Cal
 
 // PeeringServer is the server API for Peering service.
 type PeeringServer interface {
+	// Could add version exchange during peer connection
 	Connect(context.Context, *Hello) (*Ack, error)
 }
 
@@ -327,10 +329,105 @@ var _Transactions_serviceDesc = grpc.ServiceDesc{
 	Metadata: "coin.proto",
 }
 
-func init() { proto.RegisterFile("coin.proto", fileDescriptor_coin_05ebcd984c246951) }
+// StateClient is the client API for State service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type StateClient interface {
+	// Could be a huge number of blocks and transactions
+	// lets use a stream
+	GetTransactions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (State_GetTransactionsClient, error)
+}
 
-var fileDescriptor_coin_05ebcd984c246951 = []byte{
-	// 181 bytes of a gzipped FileDescriptorProto
+type stateClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewStateClient(cc *grpc.ClientConn) StateClient {
+	return &stateClient{cc}
+}
+
+func (c *stateClient) GetTransactions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (State_GetTransactionsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_State_serviceDesc.Streams[0], "/protos.State/GetTransactions", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &stateGetTransactionsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type State_GetTransactionsClient interface {
+	Recv() (*Transaction, error)
+	grpc.ClientStream
+}
+
+type stateGetTransactionsClient struct {
+	grpc.ClientStream
+}
+
+func (x *stateGetTransactionsClient) Recv() (*Transaction, error) {
+	m := new(Transaction)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// StateServer is the server API for State service.
+type StateServer interface {
+	// Could be a huge number of blocks and transactions
+	// lets use a stream
+	GetTransactions(*Empty, State_GetTransactionsServer) error
+}
+
+func RegisterStateServer(s *grpc.Server, srv StateServer) {
+	s.RegisterService(&_State_serviceDesc, srv)
+}
+
+func _State_GetTransactions_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(StateServer).GetTransactions(m, &stateGetTransactionsServer{stream})
+}
+
+type State_GetTransactionsServer interface {
+	Send(*Transaction) error
+	grpc.ServerStream
+}
+
+type stateGetTransactionsServer struct {
+	grpc.ServerStream
+}
+
+func (x *stateGetTransactionsServer) Send(m *Transaction) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+var _State_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "protos.State",
+	HandlerType: (*StateServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "GetTransactions",
+			Handler:       _State_GetTransactions_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "coin.proto",
+}
+
+func init() { proto.RegisterFile("coin.proto", fileDescriptor_coin_d558dde849b2535f) }
+
+var fileDescriptor_coin_d558dde849b2535f = []byte{
+	// 209 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x4a, 0xce, 0xcf, 0xcc,
 	0xd3, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0x03, 0x53, 0xc5, 0x4a, 0xfa, 0x5c, 0xdc, 0x21,
 	0x45, 0x89, 0x79, 0xc5, 0x89, 0xc9, 0x25, 0x99, 0xf9, 0x79, 0x42, 0x0a, 0x5c, 0xdc, 0x25, 0x08,
@@ -341,6 +438,8 @@ var fileDescriptor_coin_05ebcd984c246951 = []byte{
 	0x1b, 0xc6, 0x75, 0x4c, 0xce, 0x56, 0x62, 0x30, 0x6a, 0x66, 0xe4, 0xe2, 0x41, 0xb2, 0xbe, 0x58,
 	0xc8, 0x8a, 0x4b, 0x28, 0x28, 0x35, 0x39, 0x35, 0xb3, 0x2c, 0x15, 0xd9, 0x55, 0xc2, 0x30, 0x5d,
 	0x48, 0x82, 0x52, 0x70, 0x93, 0x21, 0xce, 0x61, 0x10, 0x32, 0xe7, 0xe2, 0x0f, 0x4e, 0xcd, 0x4b,
-	0x21, 0x59, 0x63, 0x12, 0x24, 0x2c, 0x8c, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x82, 0xb1, 0xb6,
-	0x85, 0x20, 0x01, 0x00, 0x00,
+	0x21, 0x59, 0xa3, 0x91, 0x13, 0x17, 0x6b, 0x70, 0x49, 0x62, 0x49, 0xaa, 0x90, 0x25, 0x17, 0xbf,
+	0x7b, 0x6a, 0x09, 0x8a, 0x83, 0x50, 0x15, 0x4b, 0x61, 0x33, 0x50, 0x89, 0xc1, 0x80, 0x31, 0x09,
+	0x12, 0x9e, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0x6b, 0xf5, 0x7f, 0x84, 0x64, 0x01, 0x00,
+	0x00,
 }
