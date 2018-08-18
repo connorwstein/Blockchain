@@ -9,6 +9,7 @@ import (
     "crypto/rand"
 )
 
+
 // func TestTransactionVerify(t *testing.T) {
 //     // Create a signed transaction then ensure that it verifies correctly 
 //     trans := pb.Transaction{}

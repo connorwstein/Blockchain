@@ -16,4 +16,5 @@ RUN /usr/local/go/bin/go get -u github.com/golang/protobuf/protoc-gen-go
 RUN /usr/local/go/bin/go get -u github.com/golang/glog
 RUN /usr/local/go/bin/go get -u github.com/derekparker/delve/cmd/dlv
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+WORKDIR /opt/blockchain_implementation
 CMD tail -f /dev/null

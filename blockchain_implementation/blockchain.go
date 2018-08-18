@@ -1,12 +1,12 @@
 package main
 
 import (
-//     "crypto/sha256"
+    "crypto/sha256"
     "fmt"
     "time"
-// 	"bytes"
+	"bytes"
     "errors"
-// 	"encoding/binary"
+	"encoding/binary"
     "golang.org/x/net/context"
     "google.golang.org/grpc"
     "crypto/ecdsa"
@@ -119,8 +119,10 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
             senderAddr = nil
             fmt.Println("Receive Transaction %v (no sender IP)", in)
     }
-    // TODO: Verify before adding to mempool and relaying
-    TransactionVerify(in) 
+    if !TransactionVerify(in)  {
+        fmt.Println("Reject transaction, invalid signature")
+        return &reply, nil
+    }
     addTransactionToMemPool(in) 
     for _, myPeer := range peerList {
         if senderAddr == nil || myPeer.peerIP == senderAddr.IP.String() {
@@ -135,10 +137,94 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
     return &reply, nil
 }
 
+func getPubKey() []byte {
+    // Concatenate the 2 32 byte ints representing our public key
+    pubkey := make([]byte, 0)
+    pubkey = append(pubkey, key.PublicKey.X.Bytes()...)
+    pubkey = append(pubkey,  key.PublicKey.Y.Bytes()...)
+    return pubkey
+}
+
+// Walk the blockchain looking for references to our key 
+// Maybe the wallet software normally just caches the utxos
+// associated with our keys?
+func getUTXOs() []*pb.Transaction {
+    // Kind of wasteful on space, surely a better way
+    sent := make([]*pb.Transaction, 0)
+    received := make([]*pb.Transaction, 0)
+    utxos := make([]*pb.Transaction, 0)
+    // Right now we walk every block and transaction
+    // Maybe there is a way to use the merkle root here?
+    // Make two lists --> inputs from our pubkey and outputs to our pubkey
+    // Then walk the outputs looking to see if that output transaction is referenced
+    // anywhere in an input, then the utxo was spent
+    for _, block := range blockChain {
+        for _, transaction := range block.Transactions {
+            if bytes.Equal(transaction.ReceiverPubKey, getPubKey()) {
+                received = append(received, transaction) 
+            }
+            if bytes.Equal(transaction.SenderPubKey, getPubKey()) {
+                sent = append(sent, transaction) 
+            }
+        } 
+    }
+    for _, candidateUTXO := range received {
+        spent := false
+        for _, spentTX := range sent {
+            if bytes.Equal(spentTX.InputUTXO, GetHash(candidateUTXO)) {
+                spent = true 
+            }
+        }
+        if !spent {
+            utxos = append(utxos, candidateUTXO)
+        }
+    }
+    return utxos 
+}
+
+// Find a specific UTXO of ours to reference in a new transaction
+// needs to be > desiredAmount.
+func getUTXO(desiredAmount uint64) *pb.Transaction {
+    for _, utxo := range getUTXOs() {
+        if utxo.Value > desiredAmount {
+            return utxo
+        } 
+    }
+    // No such utxo
+    return nil
+}
+
+func getBalance() uint64 {
+    var balance uint64
+    for _, utxo := range getUTXOs() {
+        balance += utxo.Value
+    }
+    return balance
+}
+
+func (s *server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, error) {
+    var balance pb.Balance
+    balance.Balance = getBalance()
+    return &balance, nil
+}
+
+// Note this is an honest node, need to find a way to test a malicious node
 func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
+    if key == nil {
+        fmt.Println("Make an account first")
+        return &reply, nil
+    }
     fmt.Printf("Send transaction %v\n", in)
-//     signTransaction(in)
+    // Find some UTXO we can use to cover the transaction
+    // If we cannot, then we have to reject the transactionk
+    inputUTXO := getUTXO(in.Value)
+    if inputUTXO == nil {
+        fmt.Printf("Not enough coin for the transaction in the wallet, balance is %d", getBalance())
+        return &reply, nil
+    }
+    // Our pub key gets added as part of the signing
+    signTransaction(in)
     addTransactionToMemPool(in) 
     // Send this transaction to all the list of clients we are connected to
     // Need to include the source, so that the peer doesn't send it back to us
@@ -155,12 +241,21 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
 }
 
 func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsServer) error {
-//     var t pb.Transaction
     fmt.Println("Get transactions")
     // Walk the mempool 
     for _, transaction := range memPool {
         fmt.Println(transaction)
         stream.Send(transaction)
+    }
+    return nil
+}
+
+func (s *server) GetBlocks(in *pb.Empty, stream pb.State_GetBlocksServer) error {
+    fmt.Println("Get blocks")
+    // Walk the mempool 
+    for _, block := range blockChain {
+        fmt.Println(block)
+        stream.Send(block)
     }
     return nil
 }
@@ -241,6 +336,39 @@ func removeOurAddress(nodeList []string) []string {
     return nodeList
 }
 
+func addGenesisBlock() {
+    var genesis pb.Block
+    var genesisHeader pb.BlockHeader
+    // Block # 1
+    genesisHeader.Height = 1
+    genesis.Header = &genesisHeader
+    blockChain[string(getBlockHash(&genesis))] = &genesis
+    // Currently the longest chain is this block to build on
+    // top of
+    tipsOfChains = append(tipsOfChains, &genesis) 
+}
+
+func getBlockHash(block *pb.Block) []byte {
+	toHash := make([]byte, 0)
+	toHash = append(toHash, block.Header.PrevBlockHash...)
+	toHash = append(toHash, block.Header.MerkleRoot...)
+    value := make([]byte, 4)
+    binary.LittleEndian.PutUint32(value, block.Header.TimeStamp)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint32(value, block.Header.DifficultyTarget)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint32(value, block.Header.Nonce)
+    toHash = append(toHash, value...)
+    value = make([]byte, 8)
+    binary.LittleEndian.PutUint64(value, block.Header.Height)
+    toHash = append(toHash, value...)
+    for _, trans := range block.Transactions {
+	    toHash = append(toHash, GetHash(trans)...)
+    }
+	sum := sha256.Sum256(toHash)
+    return sum[:]
+}
+
 func main() {
     fmt.Println("Listening")
     // TODO: pass an argument to indicate whether we are a miner or not
@@ -251,7 +379,10 @@ func main() {
                          "172.24.0.2", "172.24.0.3"}
     nodeList = removeOurAddress(nodeList)
     memPool = make(map[string]*pb.Transaction, 0)
-
+    blockChain = make(map[string]*pb.Block, 0)
+    // List of blocks at the ends of chains
+    tipsOfChains = make([]*pb.Block, 0)
+    addGenesisBlock() 
     // Problem: if they all have a different number of peers but need to connect to all of them because
     // the whole network will not be reachable. However, since we have a list of the all the nodes ips (cheating) 
     // you can periodically try to connect to all of them. This way eventually everyone will be peering with everyone they can.
