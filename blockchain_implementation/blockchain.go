@@ -21,6 +21,7 @@ import (
 const (
     PORT = "8333"
     PEER_CHECK = 2000
+    BLOCK_REWARD = 50
 )
 
 var (
@@ -79,6 +80,7 @@ func startGrpc() {
     pb.RegisterPeeringServer(s, &server{})
     pb.RegisterStateServer(s, &server{})
     pb.RegisterWalletServer(s, &server{})
+    pb.RegisterMinerServer(s, &server{})
     if err := s.Serve(lis); err != nil {
         fmt.Printf("gRPC server failed to start serving: %v", err)
     }
@@ -368,6 +370,8 @@ func getBlockHash(block *pb.Block) []byte {
 	sum := sha256.Sum256(toHash)
     return sum[:]
 }
+
+
 
 func main() {
     fmt.Println("Listening")

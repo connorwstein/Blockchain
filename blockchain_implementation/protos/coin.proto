@@ -79,3 +79,7 @@ service Wallet {
     rpc NewAccount(Account) returns (Empty) {}
     rpc GetBalance(Empty) returns (Balance) {}
 }
+
+service Miner {
+    rpc StartMining(Empty) returns (Empty) {}
+}

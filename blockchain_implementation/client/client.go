@@ -88,6 +88,16 @@ func newAccount(name string) {
     conn.Close()
 }
 
+func startMining() {
+    conn := connect()
+    c := pb.NewMinerClient(conn)
+    _, err := c.StartMining(context.Background(), &pb.Empty{})
+    if err != nil {
+        fmt.Println("Error sending transaction", err)
+    }
+    conn.Close()
+}
+
 func getBalance() {
     // Need to make a new key pair associated with this account
     conn := connect()
@@ -109,12 +119,15 @@ func main() {
     sendCommand := flag.NewFlagSet("send", flag.ExitOnError)
     newCommand := flag.NewFlagSet("new", flag.ExitOnError)
     walletCommand := flag.NewFlagSet("wallet", flag.ExitOnError)
+    mineCommand := flag.NewFlagSet("mine", flag.ExitOnError)
     
     getOp := stateCommand.String("get", "", "what you want to get")
     sendAmount := sendCommand.Int("amount", 0, "how much to send")
     sendDest := sendCommand.String("dest", "", "where to send")
     newName := newCommand.String("name", "", "name of account")
     walletGet := walletCommand.String("get", "", "get balance, pubkey etc.")
+    mineAction := mineCommand.String("action", "", "start/stop mining")
+
     switch os.Args[1] {
         case "state":
             stateCommand.Parse(os.Args[2:])
@@ -143,6 +156,14 @@ func main() {
                     getBalance()
                 default:
                     fmt.Println("Unknown get op")
+            }
+        case "mine":
+            mineCommand.Parse(os.Args[2:])
+            switch *mineAction {
+                case "start":
+                    startMining()
+                default:
+                    fmt.Println("Unknown mine action")
             }
         default:
             flag.PrintDefaults()
