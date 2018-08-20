@@ -21,7 +21,7 @@ import (
 const (
     PORT = "8333"
     PEER_CHECK = 2000
-    BLOCK_REWARD = 50
+    BLOCK_REWARD = 10
 )
 
 var (
@@ -49,6 +49,7 @@ var (
     // height in the block and use that.
     tipsOfChains []*pb.Block 
     key *ecdsa.PrivateKey
+    // I think we will need a pool of orphan blocks as well
 )
 
 type server struct{}
@@ -104,30 +105,37 @@ func addTransactionToMemPool(transaction *pb.Transaction) {
     fmt.Printf("Added transaction to mempool %v\n", memPool)
 }
 
-// Need to verify a transaction before propagating. This ensures that invalid transactions
-// are dropped at the first node which receives it
-func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
-    var reply pb.Empty
-    var senderAddr *net.TCPAddr
+func getSenderIP(ctx context.Context) string { 
+    var result string
+//     var senderAddr *net.TCPAddr
     peerIP, _ := peer.FromContext(ctx)
     if peerIP == nil {
-        return &reply, nil
+        return ""
     }
     switch senderAddr := peerIP.Addr.(type) {
         case *net.TCPAddr:
             // Expected case
-            fmt.Printf("Receive Transaction %v %v", in, senderAddr.IP.String())
+            fmt.Printf("Receive Transaction %v", senderAddr.IP.String())
+            result = senderAddr.IP.String()
         default:
-            senderAddr = nil
-            fmt.Println("Receive Transaction %v (no sender IP)", in)
+            fmt.Println("Receive Transaction (no sender IP)")
+            result = "" 
     }
+    return result 
+}
+
+// Need to verify a transaction before propagating. This ensures that invalid transactions
+// are dropped at the first node which receives it
+func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
+    var reply pb.Empty
+    senderIP := getSenderIP(ctx)
     if !TransactionVerify(in)  {
         fmt.Println("Reject transaction, invalid signature")
         return &reply, nil
     }
     addTransactionToMemPool(in) 
     for _, myPeer := range peerList {
-        if senderAddr == nil || myPeer.peerIP == senderAddr.IP.String() {
+        if senderIP == "" || myPeer.peerIP == senderIP {
             // Don't send back to the receiver
             continue
         }
@@ -135,6 +143,70 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
         ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: ipAddr})
         c := pb.NewTransactionsClient(myPeer.conn)
         c.ReceiveTransaction(ctx, in)
+    }
+    return &reply, nil
+}
+
+// Tell all of our peers about this new block we either
+// received or mined 
+func (s *server) SendBlock(ctx context.Context, in *pb.Block) (*pb.Empty, error) {
+    var reply pb.Empty
+    if !BlockIsValid(in) {
+        return &reply, nil
+    }
+    // Send block to all peers. Note we only forward valid blocks
+    for _, myPeer := range peerList {
+        // Find which one of our IP addresses is in the same network as the peer
+        ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
+        // This cast works because ipAddr is a pointer and the pointer to ipAddr does implement 
+        // the Addr interface
+        ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: ipAddr})
+        c := pb.NewBlocksClient(myPeer.conn)
+        c.ReceiveBlock(ctx, in)
+    }
+    return &reply, nil
+}
+
+func (s *server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, error) {
+    var reply pb.Empty
+    senderIP := getSenderIP(ctx)
+    // Add this block to our chain after verifying it. Since
+    // the majority of the nodes are honest and doing this validation
+    // miners are incentivized to be honest otherwise the block with their reward won't actually be included in the longest chain and is 
+    // thus unusable
+    // Verify: block is actually mined and transactions are valid
+    if !BlockIsValid(in) {
+        return &reply, nil
+    }
+    // TODO: If we are a miner and we receive a new block for the same
+    // number, we need to abandon mining that block and start on the
+    // next one
+
+    // Add this guy to the longest chain 
+    // If we don't already have the block
+    // TODO: handle forks and orphans
+    blockHash := string(getBlockHash(in))
+    if _, ok := blockChain[blockHash]; ok {
+        fmt.Printf("Already have block %v", blockHash)
+        return &reply, nil
+    }
+    fmt.Printf("Received new block %v adding to local chain", 
+                blockHash)
+    blockChain[blockHash] = in
+    tipsOfChains[0] = in 
+    // Forward this new block along
+    for _, myPeer := range peerList {
+        if senderIP ==  "" || myPeer.peerIP == senderIP {
+            // Don't send back to the receiver
+            continue
+        }
+        // Find which one of our IP addresses is in the same network as the peer
+        ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
+        // This cast works because ipAddr is a pointer and the pointer to ipAddr does implement 
+        // the Addr interface
+        ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: ipAddr})
+        c := pb.NewBlocksClient(myPeer.conn)
+        c.ReceiveBlock(ctx, in)
     }
     return &reply, nil
 }
@@ -188,7 +260,7 @@ func getUTXOs() []*pb.Transaction {
 // needs to be > desiredAmount.
 func getUTXO(desiredAmount uint64) *pb.Transaction {
     for _, utxo := range getUTXOs() {
-        if utxo.Value > desiredAmount {
+        if utxo.Value >= desiredAmount {
             return utxo
         } 
     }
@@ -210,6 +282,7 @@ func (s *server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, err
     return &balance, nil
 }
 
+
 // Note this is an honest node, need to find a way to test a malicious node
 func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
@@ -222,9 +295,11 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
     // If we cannot, then we have to reject the transactionk
     inputUTXO := getUTXO(in.Value)
     if inputUTXO == nil {
-        fmt.Printf("Not enough coin for the transaction in the wallet, balance is %d", getBalance())
+        fmt.Printf("Not enough coin for the transaction in the wallet, balance is %d\n", getBalance())
         return &reply, nil
     }
+    // Reference to our unspent output being used in this transaction
+    in.InputUTXO = GetHash(inputUTXO)
     // Our pub key gets added as part of the signing
     signTransaction(in)
     addTransactionToMemPool(in) 
@@ -268,8 +343,8 @@ func (s *server) Connect(ctx context.Context, in *pb.Hello) (*pb.Ack, error) {
     return &reply, nil
 }
 
-func (s *server) NewAccount(ctx context.Context, in *pb.Account) (*pb.Empty, error) {
-    var reply pb.Empty
+func (s *server) NewAccount(ctx context.Context, in *pb.Account) (*pb.AccountCreated, error) {
+    var reply pb.AccountCreated
     fmt.Println("New Account for: ", in.Name)
     // Create a key pair 
     // Get a keypair
@@ -282,6 +357,11 @@ func (s *server) NewAccount(ctx context.Context, in *pb.Account) (*pb.Empty, err
     fmt.Println("Private Key :", key)
     fmt.Println("Public Key :", pubkey)
     // TODO: Maybe we return the public key so user knows
+    // key itself is two big ints which we convert to and from bigints
+    // for sending over the wire
+    addr := strings.Join([]string{key.X.String(), key.Y.String()}, "")
+    fmt.Println(addr)
+    reply.Address = addr
     return &reply, nil
 }
 
@@ -351,7 +431,10 @@ func addGenesisBlock() {
 }
 
 func getBlockHash(block *pb.Block) []byte {
+    // TODO: split into getting the headers hash
+    // and the transactions hash 
 	toHash := make([]byte, 0)
+    // PrevBlockHash can be nil if 
 	toHash = append(toHash, block.Header.PrevBlockHash...)
 	toHash = append(toHash, block.Header.MerkleRoot...)
     value := make([]byte, 4)

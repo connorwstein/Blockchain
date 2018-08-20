@@ -6,11 +6,19 @@ import (
     "flag"
     pb "../protos"
     "google.golang.org/grpc"
-//     "strings"
+    "strings"
+    "bytes"
+    "crypto/ecdsa"
+    "crypto/elliptic"
+    "math/big"
     "golang.org/x/net/context"
+    "encoding/hex"
     "io"
     "strconv"
 )
+
+// TODO: use interactive cli library 
+// so we can reuse the connection
 
 func connect() *grpc.ClientConn {
     conn, err := grpc.Dial("localhost:8333", grpc.WithInsecure())
@@ -18,6 +26,29 @@ func connect() *grpc.ClientConn {
         fmt.Printf("Failed to connect to gRPC server: %v", err)
     }
     return conn
+}
+
+// func getBlockString(block *pb.Block) string {
+//     
+// }
+
+func getTransactionString(transaction *pb.Transaction) string {
+    var buf bytes.Buffer
+    buf.WriteString("Input UTXO: ")
+    buf.WriteString(hex.EncodeToString(transaction.InputUTXO[:]))
+    buf.WriteString("\n")
+    buf.WriteString("Sender: ")
+    // Two 32 byte integers concated 
+    pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
+    pubKey.X = new(big.Int)
+    pubKey.Y = new(big.Int)
+    pubKey.X.SetBytes(transaction.SenderPubKey[:32])
+    pubKey.Y.SetBytes(transaction.SenderPubKey[32:])
+    buf.WriteString(strings.Join([]string{pubKey.X.String(), pubKey.Y.String()}, ""))
+    buf.WriteString("\n")
+//     buf.WriteString("Receiver: ")
+//     buf.WriteString("Value: ")
+    return buf.String()
 }
 
 func getTransactions() {
@@ -33,9 +64,10 @@ func getTransactions() {
             break
         }
         if err != nil {
-            fmt.Printf("%v", feature)
+            fmt.Println(err)
         }
-        fmt.Println(feature)
+        fmt.Println(getTransactionString(feature))
+//         fmt.Println(feature)
     }
     conn.Close()
 }
@@ -48,14 +80,14 @@ func getBlocks() {
         fmt.Printf("Unable to get state: %v", err)
     }
     for {
-        feature, err := stream.Recv()
+        block, err := stream.Recv()
         if err == io.EOF {
             break
         }
         if err != nil {
-            fmt.Printf("%v", feature)
+            fmt.Println(err)
         }
-        fmt.Println(feature)
+        fmt.Println(block)
     }
     conn.Close()
 }
@@ -81,10 +113,11 @@ func newAccount(name string) {
     // Need to make a new key pair associated with this account
     conn := connect()
     c := pb.NewWalletClient(conn)
-    _, err := c.NewAccount(context.Background(), &pb.Account{Name: name})
+    addr, err := c.NewAccount(context.Background(), &pb.Account{Name: name})
     if err != nil {
         fmt.Println("Error sending transaction", err)
     }
+    fmt.Println(addr.Address)
     conn.Close()
 }
 
@@ -92,6 +125,16 @@ func startMining() {
     conn := connect()
     c := pb.NewMinerClient(conn)
     _, err := c.StartMining(context.Background(), &pb.Empty{})
+    if err != nil {
+        fmt.Println("Error sending transaction", err)
+    }
+    conn.Close()
+}
+
+func stopMining() {
+    conn := connect()
+    c := pb.NewMinerClient(conn)
+    _, err := c.StopMining(context.Background(), &pb.Empty{})
     if err != nil {
         fmt.Println("Error sending transaction", err)
     }
@@ -162,6 +205,8 @@ func main() {
             switch *mineAction {
                 case "start":
                     startMining()
+                case "stop":
+                    stopMining()
                 default:
                     fmt.Println("Unknown mine action")
             }

@@ -28,7 +28,8 @@ message Transaction {
 message BlockHeader {
     bytes prevBlockHash = 1;
     // Used to check whether a transaction is in the block 
-    // in logarithmic time
+    // in logarithmic time, AFAIK this is only used in SPV clients
+    // So they do not need to download the full blocks
     bytes merkleRoot = 2;
     uint32 timeStamp = 3; // seconds from epoch
     uint32 difficultyTarget = 4;
@@ -61,6 +62,11 @@ service Transactions {
     rpc SendTransaction(Transaction) returns (Empty) {}
 }
 
+service Blocks {
+    rpc SendBlock(Block) returns (Empty) {} 
+    rpc ReceiveBlock(Block) returns (Empty) {}
+}
+
 service State {
     // Could be a huge number of blocks and transactions
     // lets use a stream
@@ -71,15 +77,20 @@ service State {
 message Account {
     string name = 1;
 } 
+message AccountCreated {
+    string address = 1;
+}
+
 message Balance {
     uint64 balance = 1;
 }
 
 service Wallet {
-    rpc NewAccount(Account) returns (Empty) {}
+    rpc NewAccount(Account) returns (AccountCreated) {}
     rpc GetBalance(Empty) returns (Balance) {}
 }
 
 service Miner {
     rpc StartMining(Empty) returns (Empty) {}
+    rpc StopMining(Empty) returns (Empty) {}
 }

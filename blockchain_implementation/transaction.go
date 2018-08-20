@@ -27,9 +27,9 @@ func signTransaction(transaction *pb.Transaction) *pb.Transaction {
 }
 
 // Check
-// 1. Signature came from the private key associated with the public key of the sender
-// 2. The referenced UTXO exists and is not already spent
-// 3. Sum of the input UTXO is larger than the output
+// 1. Signature came from the private key associated with the public key of the sender - DONE
+// 2. The referenced UTXO exists and is not already spent - TODO
+// 3. Sum of the input UTXO is larger than the output - TODO
 func TransactionVerify(transaction *pb.Transaction) bool {
     // Check that the signature came from the private key associated with the public key of the sender
     // Signature is simply R and S (both 32 byte numbers) concatentated
