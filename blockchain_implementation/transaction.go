@@ -98,6 +98,8 @@ func GetHash(transaction *pb.Transaction) []byte {
     value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, transaction.Value)
 	toHash = append(toHash, value...)
+	binary.LittleEndian.PutUint64(value, transaction.Height)
+	toHash = append(toHash, value...)
 	sum := sha256.Sum256(toHash)
     return sum[:]
 }

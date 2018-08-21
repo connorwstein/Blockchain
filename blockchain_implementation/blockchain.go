@@ -199,6 +199,11 @@ func (s *server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
         fmt.Printf("Already have block %v", blockHash)
         return &reply, nil
     }
+    // If the block number the next block we were looking for update it
+    // TODO: handle out of order (orphan blocks)
+    if int(in.Header.Height) == blockNum {
+        blockNum = int(in.Header.Height) + 1
+    }
     fmt.Println("Received valid new block adding to local chain\n", 
                getBlockString(in))
     blockChain[blockHash] = in
@@ -347,10 +352,18 @@ func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsSe
 }
 
 func (s *server) GetBlocks(in *pb.Empty, stream pb.State_GetBlocksServer) error {
-    fmt.Println("Get blocks")
+    fmt.Println("Get blocks ", len(blockChain))
     // Walk the mempool 
+    // This is the only slow part, is building a sorted list
+    orderedBlocks := make([]*pb.Block, len(blockChain))
     for _, block := range blockChain {
+        orderedBlocks[block.Header.Height - 1] = block
+    }
+    for _, block := range orderedBlocks {
+        if block != nil {
+        fmt.Println("Sending: ", getBlockString(block))
         stream.Send(block)
+        }
     }
     return nil
 }
@@ -439,8 +452,10 @@ func addGenesisBlock() {
     var genesisHeader pb.BlockHeader
     // Block # 1
     genesisHeader.Height = 1
+    genesisHeader.PrevBlockHash = make([]byte, 32)
+    genesisHeader.MerkleRoot = make([]byte, 32)
     genesis.Header = &genesisHeader
-    blockNum = 1
+    blockNum = 2 // Next block num
     blockChain[string(getBlockHash(&genesis))] = &genesis
     // Currently the longest chain is this block to build on
     // top of
@@ -451,7 +466,7 @@ func getBlockHash(block *pb.Block) []byte {
     // TODO: split into getting the headers hash
     // and the transactions hash 
 	toHash := make([]byte, 0)
-    // PrevBlockHash can be nil if 
+    // PrevBlockHash can be nil if it is the genesis block
 	toHash = append(toHash, block.Header.PrevBlockHash...)
 	toHash = append(toHash, block.Header.MerkleRoot...)
     value := make([]byte, 8)

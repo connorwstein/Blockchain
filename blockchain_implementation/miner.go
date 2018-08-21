@@ -113,7 +113,6 @@ func Mine(quit chan struct{}) {
         newBlock.Header = &newBlockHeader
         newBlock.Header.TimeStamp = uint64(time.Now().UnixNano())
         newBlock.Header.PrevBlockHash = getBlockHash(tipsOfChains[0])
-        blockNum += 1
         newBlock.Header.Height = uint64(blockNum)
         newBlock.Transactions = make([]*pb.Transaction, 0)
         // Add a transaction to ourselves
@@ -142,6 +141,7 @@ func Mine(quit chan struct{}) {
             } 
             blockChain[string(getBlockHash(&newBlock))] = &newBlock
             tipsOfChains[0] = &newBlock
+            blockNum += 1
             // Broadcast this block
             // Send block to all peers. Block is valid since we just mined it
             for _, myPeer := range peerList {

@@ -30,39 +30,18 @@ func connect() *grpc.ClientConn {
     }
     return conn
 }
-func getBlockString(block *pb.Block) string {
-    var buf bytes.Buffer
-    buf.WriteString("\nBlock Hash: ")
-    buf.WriteString(hex.EncodeToString(getBlockHash(block)))
-    buf.WriteString("\nBlock Header: ")
-    buf.WriteString("\n  prevBlockHash: ")
-    buf.WriteString(hex.EncodeToString(block.Header.PrevBlockHash[:]))
-    buf.WriteString("\n  timestamp: ")
-    buf.WriteString(time.Unix(0, int64(block.Header.TimeStamp)).String())
-    buf.WriteString("\n  nonce: ")
-    buf.WriteString(strconv.Itoa(int(block.Header.Nonce)))
-    buf.WriteString("\n  height: ")
-    buf.WriteString(strconv.Itoa(int(block.Header.Height)))
-    buf.WriteString("\nTransactions:\n")
-    for i := range block.Transactions {
-        buf.WriteString("\n")
-        buf.WriteString(getTransactionString(block.Transactions[i]))
-        buf.WriteString("\n")
-    }
-    return buf.String()
-}
 
 func getBlockHash(block *pb.Block) []byte {
     // TODO: split into getting the headers hash
     // and the transactions hash 
 	toHash := make([]byte, 0)
-    // PrevBlockHash can be nil if 
+    // PrevBlockHash can be nil if it is the genesis block
 	toHash = append(toHash, block.Header.PrevBlockHash...)
 	toHash = append(toHash, block.Header.MerkleRoot...)
     value := make([]byte, 8)
-    binary.LittleEndian.PutUint64(value, block.Header.Height)
-    toHash = append(toHash, value...)
     binary.LittleEndian.PutUint64(value, block.Header.TimeStamp)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint64(value, block.Header.Height)
     toHash = append(toHash, value...)
     value = make([]byte, 4)
     binary.LittleEndian.PutUint32(value, block.Header.DifficultyTarget)
@@ -76,14 +55,41 @@ func getBlockHash(block *pb.Block) []byte {
     return sum[:]
 }
 
+
+func getBlockString(block *pb.Block) string {
+    var buf bytes.Buffer
+    buf.WriteString("\nBlock Hash: ")
+    buf.WriteString(hex.EncodeToString(getBlockHash(block)))
+    buf.WriteString("\nBlock Header: ")
+    buf.WriteString("\n  prevBlockHash: ")
+    buf.WriteString(hex.EncodeToString(block.Header.PrevBlockHash[:]))
+    buf.WriteString("\n  timestamp: ")
+    buf.WriteString(time.Unix(0, int64(block.Header.TimeStamp)).String())
+    buf.WriteString("\n  nonce: ")
+    buf.WriteString(strconv.Itoa(int(block.Header.Nonce)))
+    buf.WriteString("\n  height: ")
+    buf.WriteString(strconv.Itoa(int(block.Header.Height)))
+    buf.WriteString("\nTransactions:\n\n")
+    for i := range block.Transactions {
+        buf.WriteString("\n")
+        buf.WriteString(getTransactionString(block.Transactions[i]))
+        buf.WriteString("\n")
+    }
+    return buf.String()
+}
+
+
 func GetHash(transaction *pb.Transaction) []byte {
     // SHA hash is 32 bytes
     // TODO: use a writer here
 	toHash := make([]byte, 0)
 	toHash = append(toHash, []byte(transaction.InputUTXO)...)
 	toHash = append(toHash, []byte(transaction.ReceiverPubKey)...)
+	toHash = append(toHash, []byte(transaction.SenderPubKey)...)
     value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, transaction.Value)
+	toHash = append(toHash, value...)
+	binary.LittleEndian.PutUint64(value, transaction.Height)
 	toHash = append(toHash, value...)
 	sum := sha256.Sum256(toHash)
     return sum[:]
@@ -144,6 +150,7 @@ func getTransactions() {
 
 func getBlocks() {
     conn := connect()
+    defer conn.Close()
     c := pb.NewStateClient(conn)
     stream, err := c.GetBlocks(context.Background(), &pb.Empty{})
     if err != nil {
@@ -156,10 +163,10 @@ func getBlocks() {
         }
         if err != nil {
             fmt.Println(err)
+            return
         }
         fmt.Println(getBlockString(block))
     }
-    conn.Close()
 }
 
 // Destination should be the pubkey of someone else
