@@ -1,7 +1,9 @@
 package main
 
 import (
+    "crypto/sha256"
     "fmt"
+    "time"
     "os"
     "flag"
     pb "../protos"
@@ -13,6 +15,7 @@ import (
     "math/big"
     "golang.org/x/net/context"
     "encoding/hex"
+    "encoding/binary"
     "io"
     "strconv"
 )
@@ -27,27 +30,94 @@ func connect() *grpc.ClientConn {
     }
     return conn
 }
+func getBlockString(block *pb.Block) string {
+    var buf bytes.Buffer
+    buf.WriteString("\nBlock Hash: ")
+    buf.WriteString(hex.EncodeToString(getBlockHash(block)))
+    buf.WriteString("\nBlock Header: ")
+    buf.WriteString("\n  prevBlockHash: ")
+    buf.WriteString(hex.EncodeToString(block.Header.PrevBlockHash[:]))
+    buf.WriteString("\n  timestamp: ")
+    buf.WriteString(time.Unix(0, int64(block.Header.TimeStamp)).String())
+    buf.WriteString("\n  nonce: ")
+    buf.WriteString(strconv.Itoa(int(block.Header.Nonce)))
+    buf.WriteString("\n  height: ")
+    buf.WriteString(strconv.Itoa(int(block.Header.Height)))
+    buf.WriteString("\nTransactions:\n")
+    for i := range block.Transactions {
+        buf.WriteString("\n")
+        buf.WriteString(getTransactionString(block.Transactions[i]))
+        buf.WriteString("\n")
+    }
+    return buf.String()
+}
 
-// func getBlockString(block *pb.Block) string {
-//     
-// }
+func getBlockHash(block *pb.Block) []byte {
+    // TODO: split into getting the headers hash
+    // and the transactions hash 
+	toHash := make([]byte, 0)
+    // PrevBlockHash can be nil if 
+	toHash = append(toHash, block.Header.PrevBlockHash...)
+	toHash = append(toHash, block.Header.MerkleRoot...)
+    value := make([]byte, 8)
+    binary.LittleEndian.PutUint64(value, block.Header.Height)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint64(value, block.Header.TimeStamp)
+    toHash = append(toHash, value...)
+    value = make([]byte, 4)
+    binary.LittleEndian.PutUint32(value, block.Header.DifficultyTarget)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint32(value, block.Header.Nonce)
+    toHash = append(toHash, value...)
+    for _, trans := range block.Transactions {
+	    toHash = append(toHash, GetHash(trans)...)
+    }
+	sum := sha256.Sum256(toHash)
+    return sum[:]
+}
+
+func GetHash(transaction *pb.Transaction) []byte {
+    // SHA hash is 32 bytes
+    // TODO: use a writer here
+	toHash := make([]byte, 0)
+	toHash = append(toHash, []byte(transaction.InputUTXO)...)
+	toHash = append(toHash, []byte(transaction.ReceiverPubKey)...)
+    value := make([]byte, 8)
+	binary.LittleEndian.PutUint64(value, transaction.Value)
+	toHash = append(toHash, value...)
+	sum := sha256.Sum256(toHash)
+    return sum[:]
+}
 
 func getTransactionString(transaction *pb.Transaction) string {
     var buf bytes.Buffer
-    buf.WriteString("Input UTXO: ")
+    buf.WriteString("\nTransaction Hash: ")
+    buf.WriteString(hex.EncodeToString(GetHash(transaction)[:]))
+    buf.WriteString("\nInput UTXO: ")
     buf.WriteString(hex.EncodeToString(transaction.InputUTXO[:]))
-    buf.WriteString("\n")
-    buf.WriteString("Sender: ")
+    buf.WriteString("\nSender: ")
     // Two 32 byte integers concated 
+    if len(transaction.SenderPubKey) > 4 {
     pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
     pubKey.X = new(big.Int)
     pubKey.Y = new(big.Int)
     pubKey.X.SetBytes(transaction.SenderPubKey[:32])
     pubKey.Y.SetBytes(transaction.SenderPubKey[32:])
     buf.WriteString(strings.Join([]string{pubKey.X.String(), pubKey.Y.String()}, ""))
-    buf.WriteString("\n")
-//     buf.WriteString("Receiver: ")
-//     buf.WriteString("Value: ")
+    } else {
+        buf.WriteString("Miner reward")
+    }
+    buf.WriteString("\nReceiver: ")
+    pubKey2 := ecdsa.PublicKey{Curve: elliptic.P256()}
+    pubKey2.X = new(big.Int)
+    pubKey2.Y = new(big.Int)
+    pubKey2.X.SetBytes(transaction.ReceiverPubKey[:32])
+    pubKey2.Y.SetBytes(transaction.ReceiverPubKey[32:])
+    buf.WriteString(strings.Join([]string{pubKey2.X.String(), pubKey2.Y.String()}, ""))
+    buf.WriteString("\nValue: ")
+    buf.WriteString(strconv.Itoa(int(transaction.Value)))
+    buf.WriteString("\nHeight: ")
+    buf.WriteString(strconv.Itoa(int(transaction.Height)))
     return buf.String()
 }
 
@@ -87,7 +157,7 @@ func getBlocks() {
         if err != nil {
             fmt.Println(err)
         }
-        fmt.Println(block)
+        fmt.Println(getBlockString(block))
     }
     conn.Close()
 }
@@ -101,7 +171,15 @@ func send(amount int, destination string) {
     fmt.Println(strconv.Itoa(amount))
     var trans pb.Transaction
     trans.Value = uint64(amount)
-    trans.ReceiverPubKey = []byte(destination)
+    // Destination string is two 32 byte integers concatenated
+    x := new(big.Int)
+    y := new(big.Int)
+    x.SetString(destination[:77], 10)
+    y.SetString(destination[77:], 10)
+    var recv []byte
+    recv = append(recv, x.Bytes()...)
+    recv = append(recv, y.Bytes()...)
+    trans.ReceiverPubKey = recv 
     _, err := c.SendTransaction(context.Background(), &trans)
     if err != nil {
         fmt.Println("Error sending transaction", err)
@@ -149,7 +227,19 @@ func getBalance() {
     if err != nil {
         fmt.Println("Error sending transaction", err)
     }
-    fmt.Printf("Balance %d\n", balance.Balance)
+    fmt.Printf("%d\n", balance.Balance)
+    conn.Close()
+}
+
+func getAddress() {
+    // Need to make a new key pair associated with this account
+    conn := connect()
+    c := pb.NewWalletClient(conn)
+    address, err := c.GetAddress(context.Background(), &pb.Empty{})
+    if err != nil {
+        fmt.Println("Error sending transaction", err)
+    }
+    fmt.Printf("%s\n", address.Address)
     conn.Close()
 }
 
@@ -197,6 +287,8 @@ func main() {
             switch *walletGet {
                 case "balance":
                     getBalance()
+                case "address":
+                    getAddress()
                 default:
                     fmt.Println("Unknown get op")
             }

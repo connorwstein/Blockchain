@@ -10,6 +10,10 @@ import (
     "crypto/ecdsa"
     "crypto/rand"
     pb "./protos"
+    "encoding/hex"
+    "strconv"
+    "bytes"
+    "strings"
 )
 
 func signTransaction(transaction *pb.Transaction) *pb.Transaction {
@@ -35,6 +39,10 @@ func TransactionVerify(transaction *pb.Transaction) bool {
     // Signature is simply R and S (both 32 byte numbers) concatentated
     // Convert to big ints
     // Pub key will be concatenation of X and Y big ints converted to bytes 
+    if len(transaction.SenderPubKey) <= 4 {
+        // Coinbase transaction
+        return true
+    }
     pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
     pubKey.X = new(big.Int)
     pubKey.Y = new(big.Int)
@@ -49,9 +57,36 @@ func TransactionVerify(transaction *pb.Transaction) bool {
     return verifystatus 
 }
 
-func TransactionToString(transaction pb.Transaction) string {
-    return fmt.Sprintf("%v --> %v $%v", transaction.InputUTXO, transaction.ReceiverPubKey, transaction.Value)
+func getTransactionString(transaction *pb.Transaction) string {
+    var buf bytes.Buffer
+    buf.WriteString("\nTransaction Hash: ")
+    buf.WriteString(hex.EncodeToString(GetHash(transaction)[:]))
+    buf.WriteString("\nInput UTXO: ")
+    buf.WriteString(hex.EncodeToString(transaction.InputUTXO[:]))
+    buf.WriteString("\nSender: ")
+    // Two 32 byte integers concated 
+    if len(transaction.SenderPubKey) > 4 {
+    pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
+    pubKey.X = new(big.Int)
+    pubKey.Y = new(big.Int)
+    pubKey.X.SetBytes(transaction.SenderPubKey[:32])
+    pubKey.Y.SetBytes(transaction.SenderPubKey[32:])
+    buf.WriteString(strings.Join([]string{pubKey.X.String(), pubKey.Y.String()}, ""))
+    } else {
+        buf.WriteString("Miner reward")
+    }
+    buf.WriteString("\nReceiver: ")
+    pubKey2 := ecdsa.PublicKey{Curve: elliptic.P256()}
+    pubKey2.X = new(big.Int)
+    pubKey2.Y = new(big.Int)
+    pubKey2.X.SetBytes(transaction.ReceiverPubKey[:32])
+    pubKey2.Y.SetBytes(transaction.ReceiverPubKey[32:])
+    buf.WriteString(strings.Join([]string{pubKey2.X.String(), pubKey2.Y.String()}, ""))
+    buf.WriteString("\nValue: ")
+    buf.WriteString(strconv.Itoa(int(transaction.Value)))
+    return buf.String()
 }
+
 
 func GetHash(transaction *pb.Transaction) []byte {
     // SHA hash is 32 bytes
@@ -59,6 +94,7 @@ func GetHash(transaction *pb.Transaction) []byte {
 	toHash := make([]byte, 0)
 	toHash = append(toHash, []byte(transaction.InputUTXO)...)
 	toHash = append(toHash, []byte(transaction.ReceiverPubKey)...)
+	toHash = append(toHash, []byte(transaction.SenderPubKey)...)
     value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, transaction.Value)
 	toHash = append(toHash, value...)

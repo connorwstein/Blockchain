@@ -8,20 +8,42 @@ import (
     "fmt"
     "golang.org/x/net/context"
     "bytes"
+    "encoding/hex"
+//     "encoding/binary"
+    "strconv"
+    "time"
+    "net"
+    "google.golang.org/grpc/peer"
 )
 
 var quit chan struct{}
 
+func getBlockString(block *pb.Block) string {
+    var buf bytes.Buffer
+    buf.WriteString("\nBlock Hash: ")
+    buf.WriteString(hex.EncodeToString(getBlockHash(block)))
+    buf.WriteString("\nBlock Header: ")
+    buf.WriteString("\n  prevBlockHash: ")
+    buf.WriteString(hex.EncodeToString(block.Header.PrevBlockHash[:]))
+    buf.WriteString("\n  timestamp: ")
+    buf.WriteString(time.Unix(0, int64(block.Header.TimeStamp)).String())
+    buf.WriteString("\n  nonce: ")
+    buf.WriteString(strconv.Itoa(int(block.Header.Nonce)))
+    buf.WriteString("\n  height: ")
+    buf.WriteString(strconv.Itoa(int(block.Header.Height)))
+    buf.WriteString("\nTransactions:\n\n")
+    for i := range block.Transactions {
+        buf.WriteString("\n")
+        buf.WriteString(getTransactionString(block.Transactions[i]))
+        buf.WriteString("\n")
+    }
+    return buf.String()
+}
+
+
 func BlockIsValid(block *pb.Block) bool {
     // Check whether the block is mined, its previous block is 
     // mined and all transactions are valid
-    // Not sure if this check is actually needed as long as each
-    // block is checked to be mined before adding to the chain in the first place
-    if block.Header.PrevBlockHash != nil {
-        if !CheckHashMined(block.Header.PrevBlockHash)  {
-            return false
-        }
-    } 
     if !CheckHashMined(getBlockHash(block)) {
         return false
     }
@@ -34,21 +56,31 @@ func BlockIsValid(block *pb.Block) bool {
 }
 
 func CheckHashMined(hash []byte) bool {
-    return bytes.Equal(hash[0:2], []byte{0x00, 0x00})
+//     var b byte = 20 
+//     return bytes.Equal(hash[0:2], []byte{0x00, 0x00}) && hash[2] < b
+    return bytes.Equal(hash[0:1], []byte{0x00})
 }
 
-func MineBlock(block *pb.Block) {
+func MineBlock(block *pb.Block, quit chan struct{}) bool {
     // Increment the nonce until the hash starts with 3 zeros.
     for {
-        if ! CheckHashMined(getBlockHash(block)) {
-            // Increment the nonce, append the block data to it then hash it
-//             fmt.Printf("Mining attempt not successful %v\n", getBlockHash(block))
-            block.Header.Nonce += 1
-        } else {
-            break
-        }
+        select {
+        case <- quit:
+            fmt.Println("stop mining")
+            close(quit)
+            return false 
+        default:
+            if ! CheckHashMined(getBlockHash(block)) {
+                // Increment the nonce, append the block data to it then hash it
+//                 fmt.Printf("Mining attempt not successful %v\n", getBlockHash(block))
+                block.Header.Nonce += 1
+            } else {
+                fmt.Printf("Mined block: %s\n", getBlockString(block))
+                return true
+            }
+       }
+        time.Sleep(20 * time.Millisecond)
     }
-    fmt.Println("Mined block: ", block)
 }
 
 func (s *server) StartMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
@@ -75,39 +107,55 @@ func (s *server) StopMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error
 func Mine(quit chan struct{}) {
     // Take whatever is in the mempool right now and start mining it in a block
     for {
-        select {
-        case <- quit:
-            fmt.Println("stop mining")
-            close(quit)
-            return 
-        default:
-            fmt.Println("mining")
-            var newBlock pb.Block
-            var newBlockHeader pb.BlockHeader
-            newBlock.Header = &newBlockHeader
-            newBlock.Transactions = make([]*pb.Transaction, 0)
-            // Add a transaction to ourselves
-            // leave inputUTXO and senderPubKey as zeroed bytes
-            // as this is minted 
-            var mint pb.Transaction
-            // Receiver is our key (note need an account before you can mine)
-            // Coinbase transaction is actually unsigned
-            mint.ReceiverPubKey = getPubKey()
-            mint.Value = BLOCK_REWARD
-            newBlock.Transactions = append(newBlock.Transactions, &mint)
-            // Now add all the other ones (could be empty)
-            for _, transaction := range memPool {
-                newBlock.Transactions = append(newBlock.Transactions, transaction)
+        fmt.Println("mining")
+        var newBlock pb.Block
+        var newBlockHeader pb.BlockHeader
+        newBlock.Header = &newBlockHeader
+        newBlock.Header.TimeStamp = uint64(time.Now().UnixNano())
+        newBlock.Header.PrevBlockHash = getBlockHash(tipsOfChains[0])
+        blockNum += 1
+        newBlock.Header.Height = uint64(blockNum)
+        newBlock.Transactions = make([]*pb.Transaction, 0)
+        // Add a transaction to ourselves
+        // HACK: put the block num in sender pub key 
+        // to ensure the hash of this transaction is unique
+        // TODO: figure out how the real system does this
+        var mint pb.Transaction
+        // Receiver is our key (note need an account before you can mine)
+        // Coinbase transaction is actually unsigned
+        mint.ReceiverPubKey = getPubKey()
+        mint.Value = BLOCK_REWARD
+        mint.Height = uint64(blockNum)
+        newBlock.Transactions = append(newBlock.Transactions, &mint)
+        // Now add all the other ones (could be empty)
+        for _, transaction := range memPool {
+            newBlock.Transactions = append(newBlock.Transactions, transaction)
+        } 
+        // Blocks until mining is complete
+        // Need a way to abort if a new block at the same number is received while mining
+        result := MineBlock(&newBlock, quit) 
+        // After mining we cannot modify the block, otherwise its hash will no longer
+        // be valid
+        if result {
+            for i := range newBlock.Transactions {
+                delete(memPool, string(GetHash(newBlock.Transactions[i])))
             } 
-            // Blocks until mining is complete
-            MineBlock(&newBlock) 
-            // Add new block to the chain 
-            // Blocks previous hash is the tip of the currently longest chain
-            // TODO: broadcast this new block
-            // Hard coded for just one chain right now, can't actually handle a fork
-            newBlock.Header.PrevBlockHash = getBlockHash(tipsOfChains[0])
             blockChain[string(getBlockHash(&newBlock))] = &newBlock
             tipsOfChains[0] = &newBlock
+            // Broadcast this block
+            // Send block to all peers. Block is valid since we just mined it
+            for _, myPeer := range peerList {
+                // Find which one of our IP addresses is in the same network as the peer
+                ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
+                // This cast works because ipAddr is a pointer and the pointer to ipAddr does implement 
+                // the Addr interface
+                ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: ipAddr})
+                c := pb.NewBlocksClient(myPeer.conn)
+                c.ReceiveBlock(ctx, &newBlock)
+            }
+        } else {
+            fmt.Println("Aborted mining")
+            break
         }
     }
 }

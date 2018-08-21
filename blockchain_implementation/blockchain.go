@@ -16,6 +16,9 @@ import (
     "strings"
     "google.golang.org/grpc/peer"
     pb "./protos"
+//     "math/big"
+//     "encoding/hex"
+//     "strconv"
 )
 
 const (
@@ -50,6 +53,7 @@ var (
     tipsOfChains []*pb.Block 
     key *ecdsa.PrivateKey
     // I think we will need a pool of orphan blocks as well
+    blockNum int
 )
 
 type server struct{}
@@ -82,6 +86,7 @@ func startGrpc() {
     pb.RegisterStateServer(s, &server{})
     pb.RegisterWalletServer(s, &server{})
     pb.RegisterMinerServer(s, &server{})
+    pb.RegisterBlocksServer(s, &server{})
     if err := s.Serve(lis); err != nil {
         fmt.Printf("gRPC server failed to start serving: %v", err)
     }
@@ -102,7 +107,8 @@ func getOutgoingIP(peerIP string) (string, error) {
 func addTransactionToMemPool(transaction *pb.Transaction) {
     tx := GetHash(transaction)
     memPool[string(tx[:])] = transaction
-    fmt.Printf("Added transaction to mempool %v\n", memPool)
+    fmt.Printf("Added transaction to mempool:")
+    fmt.Println(getTransactionString(transaction))
 }
 
 func getSenderIP(ctx context.Context) string { 
@@ -149,6 +155,7 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
 
 // Tell all of our peers about this new block we either
 // received or mined 
+// TODO do we need this send to be part of the grpc server ?
 func (s *server) SendBlock(ctx context.Context, in *pb.Block) (*pb.Empty, error) {
     var reply pb.Empty
     if !BlockIsValid(in) {
@@ -176,6 +183,8 @@ func (s *server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
     // thus unusable
     // Verify: block is actually mined and transactions are valid
     if !BlockIsValid(in) {
+        fmt.Println("Block is invalid")
+        fmt.Println(getBlockString(in))
         return &reply, nil
     }
     // TODO: If we are a miner and we receive a new block for the same
@@ -190,8 +199,8 @@ func (s *server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
         fmt.Printf("Already have block %v", blockHash)
         return &reply, nil
     }
-    fmt.Printf("Received new block %v adding to local chain", 
-                blockHash)
+    fmt.Println("Received valid new block adding to local chain\n", 
+               getBlockString(in))
     blockChain[blockHash] = in
     tipsOfChains[0] = in 
     // Forward this new block along
@@ -242,11 +251,14 @@ func getUTXOs() []*pb.Transaction {
             }
         } 
     }
+    spent := false
     for _, candidateUTXO := range received {
-        spent := false
+        fmt.Println(getTransactionString(candidateUTXO))
+        spent = false
         for _, spentTX := range sent {
             if bytes.Equal(spentTX.InputUTXO, GetHash(candidateUTXO)) {
                 spent = true 
+                fmt.Println("spent ^")
             }
         }
         if !spent {
@@ -282,6 +294,14 @@ func (s *server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, err
     return &balance, nil
 }
 
+func (s *server) GetAddress(ctx context.Context, in *pb.Empty) (*pb.AccountCreated, error) {
+    var account pb.AccountCreated
+    addr := strings.Join([]string{key.X.String(), key.Y.String()}, "")
+    fmt.Println(addr)
+    account.Address = addr
+    return &account, nil
+}
+
 
 // Note this is an honest node, need to find a way to test a malicious node
 func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
@@ -290,7 +310,6 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
         fmt.Println("Make an account first")
         return &reply, nil
     }
-    fmt.Printf("Send transaction %v\n", in)
     // Find some UTXO we can use to cover the transaction
     // If we cannot, then we have to reject the transactionk
     inputUTXO := getUTXO(in.Value)
@@ -302,6 +321,7 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
     in.InputUTXO = GetHash(inputUTXO)
     // Our pub key gets added as part of the signing
     signTransaction(in)
+    fmt.Printf("Send transaction %v\n", getTransactionString(in))
     addTransactionToMemPool(in) 
     // Send this transaction to all the list of clients we are connected to
     // Need to include the source, so that the peer doesn't send it back to us
@@ -321,7 +341,6 @@ func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsSe
     fmt.Println("Get transactions")
     // Walk the mempool 
     for _, transaction := range memPool {
-        fmt.Println(transaction)
         stream.Send(transaction)
     }
     return nil
@@ -331,7 +350,6 @@ func (s *server) GetBlocks(in *pb.Empty, stream pb.State_GetBlocksServer) error 
     fmt.Println("Get blocks")
     // Walk the mempool 
     for _, block := range blockChain {
-        fmt.Println(block)
         stream.Send(block)
     }
     return nil
@@ -353,9 +371,7 @@ func (s *server) NewAccount(ctx context.Context, in *pb.Account) (*pb.AccountCre
     key = new(ecdsa.PrivateKey)
     // Generate the keypair based on the curve
     key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-    var pubkey ecdsa.PublicKey = key.PublicKey
-    fmt.Println("Private Key :", key)
-    fmt.Println("Public Key :", pubkey)
+//     var pubkey ecdsa.PublicKey = key.PublicKey
     // TODO: Maybe we return the public key so user knows
     // key itself is two big ints which we convert to and from bigints
     // for sending over the wire
@@ -424,6 +440,7 @@ func addGenesisBlock() {
     // Block # 1
     genesisHeader.Height = 1
     genesis.Header = &genesisHeader
+    blockNum = 1
     blockChain[string(getBlockHash(&genesis))] = &genesis
     // Currently the longest chain is this block to build on
     // top of
@@ -437,15 +454,15 @@ func getBlockHash(block *pb.Block) []byte {
     // PrevBlockHash can be nil if 
 	toHash = append(toHash, block.Header.PrevBlockHash...)
 	toHash = append(toHash, block.Header.MerkleRoot...)
-    value := make([]byte, 4)
-    binary.LittleEndian.PutUint32(value, block.Header.TimeStamp)
+    value := make([]byte, 8)
+    binary.LittleEndian.PutUint64(value, block.Header.TimeStamp)
     toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint64(value, block.Header.Height)
+    toHash = append(toHash, value...)
+    value = make([]byte, 4)
     binary.LittleEndian.PutUint32(value, block.Header.DifficultyTarget)
     toHash = append(toHash, value...)
     binary.LittleEndian.PutUint32(value, block.Header.Nonce)
-    toHash = append(toHash, value...)
-    value = make([]byte, 8)
-    binary.LittleEndian.PutUint64(value, block.Header.Height)
     toHash = append(toHash, value...)
     for _, trans := range block.Transactions {
 	    toHash = append(toHash, GetHash(trans)...)

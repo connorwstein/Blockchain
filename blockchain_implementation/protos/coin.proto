@@ -21,8 +21,18 @@ message Transaction {
     // Destination of the UTXO
     bytes receiverPubKey = 3;
     // Ensures the private key associated with the public key in the inputUTXO was actually used to sign this 
+    // Note the way it really works is there is a locking and unlocking
+    // script, but more or less the locking script just contains the pub
+    // key of the receiver and to unlock it you provide an unlocking
+    // script with a signature signed by the private key associated
+    // with that public key
     bytes signature = 4;
     uint64 value = 5;
+    // Height is guaranteed to be unique per miner, in the real bitcoin network this
+    // goes in the coinbase script arbirary data section but in general this 
+    // resolves the issue of identical coinbase transactions for the same miner
+    // currently only used for coinbase transactions
+    uint64 height = 6;
 }
 
 message BlockHeader {
@@ -31,7 +41,7 @@ message BlockHeader {
     // in logarithmic time, AFAIK this is only used in SPV clients
     // So they do not need to download the full blocks
     bytes merkleRoot = 2;
-    uint32 timeStamp = 3; // seconds from epoch
+    uint64 timeStamp = 3; // seconds from epoch
     uint32 difficultyTarget = 4;
     uint32 nonce = 5; 
     uint64 height = 6; // essentially the block number 
@@ -88,6 +98,7 @@ message Balance {
 service Wallet {
     rpc NewAccount(Account) returns (AccountCreated) {}
     rpc GetBalance(Empty) returns (Balance) {}
+    rpc GetAddress(Empty) returns (AccountCreated) {}
 }
 
 service Miner {
