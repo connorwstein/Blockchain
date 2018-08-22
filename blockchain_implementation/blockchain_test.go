@@ -16,6 +16,6 @@ import (
 // We can test all of the functions aside from the actual gRPC ones, 
 // but the gRPC server functions can simply call functions
 func TestMakeChange(t *testing.T) {
-    initBlockChain()
+//     initBlockChain()
 }
 

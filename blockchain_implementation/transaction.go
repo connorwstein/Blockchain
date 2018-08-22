@@ -20,6 +20,18 @@ import (
     "strings"
 )
 
+type MemPool struct {
+    transactions map[string]*pb.Transaction
+}
+
+func (memPool *MemPool) addTransactionToMemPool(transaction *pb.Transaction) {
+    tx := getTransactionHash(transaction)
+    memPool.transactions[string(tx[:])] = transaction
+    fmt.Printf("Added transaction to mempool:")
+    fmt.Println(getTransactionString(transaction))
+}
+
+
 func getPubKeyBytes(key *ecdsa.PrivateKey) []byte {
     pubKeyBytes := make([]byte, 64)
     pubKeyBytes = append(pubKeyBytes, key.PublicKey.X.Bytes()...)
@@ -101,7 +113,6 @@ func getTransactionString(transaction *pb.Transaction) string {
     return buf.String()
 }
 
-
 func getTransactionHash(transaction *pb.Transaction) []byte {
     // SHA hash is 32 bytes
     // TODO: use a writer here
@@ -119,26 +130,26 @@ func getTransactionHash(transaction *pb.Transaction) []byte {
 }
 
 // Note this is an honest node, need to find a way to test a malicious node
-func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
+func (s *Server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
-    if key == nil {
+    if s.Wallet.key == nil {
         return &reply, errors.New("Need to make an account first") 
     }
     // Find some UTXO we can use to cover the transaction
     // If we cannot, then we have to reject the transactionk
-    inputUTXO := getUTXO(in.Value)
+    inputUTXO := s.Blockchain.getUTXO(s.Wallet.key, in.Value)
     if inputUTXO == nil {
-        return &reply, errors.New(fmt.Sprintf("Not enough coin, balance is %d", getBalance()))
+        return &reply, errors.New(fmt.Sprintf("Not enough coin, balance is %d", s.Blockchain.getBalance(s.Wallet.key)))
     }
     // Reference to our unspent output being used in this transaction
     in.InputUTXO = getTransactionHash(inputUTXO)
     // Our pub key gets added as part of the signing
-    signTransaction(in, key)
+    signTransaction(in, s.Wallet.key)
     fmt.Printf("Send transaction %v\n", getTransactionString(in))
-    addTransactionToMemPool(in) 
+    s.MemPool.addTransactionToMemPool(in) 
     // Send this transaction to all the list of clients we are connected to
     // Need to include the source, so that the peer doesn't send it back to us
-    for _, myPeer := range peerList {
+    for _, myPeer := range s.peerList {
         // Find which one of our IP addresses is in the same network as the peer
         ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
         // This cast works because ipAddr is a pointer and the pointer to ipAddr does implement 
@@ -150,10 +161,10 @@ func (s *server) SendTransaction(ctx context.Context, in *pb.Transaction) (*pb.E
     return &reply, nil
 }
 
-func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsServer) error {
+func (s *Server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsServer) error {
     fmt.Println("Get transactions")
     // Walk the mempool 
-    for _, transaction := range memPool {
+    for _, transaction := range s.MemPool.transactions {
         stream.Send(transaction)
     }
     return nil
@@ -162,15 +173,15 @@ func (s *server) GetTransactions(in *pb.Empty, stream pb.State_GetTransactionsSe
 
 // Need to verify a transaction before propagating. This ensures that invalid transactions
 // are dropped at the first node which receives it
-func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
+func (s *Server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*pb.Empty, error) {
     var reply pb.Empty
     senderIP := getSenderIP(ctx)
-    if !verifyTransaction(in)  {
+    if ! verifyTransaction(in)  {
         fmt.Println("Reject transaction, invalid signature")
         return &reply, nil
     }
-    addTransactionToMemPool(in) 
-    for _, myPeer := range peerList {
+    s.MemPool.addTransactionToMemPool(in) 
+    for _, myPeer := range s.peerList {
         if senderIP == "" || myPeer.peerIP == senderIP {
             // Don't send back to the receiver
             continue
@@ -183,75 +194,8 @@ func (s *server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
     return &reply, nil
 }
 
-func addTransactionToMemPool(transaction *pb.Transaction) {
-    tx := getTransactionHash(transaction)
-    memPool[string(tx[:])] = transaction
-    fmt.Printf("Added transaction to mempool:")
-    fmt.Println(getTransactionString(transaction))
-}
-
-// Walk the blockchain looking for references to our key 
-// Maybe the wallet software normally just caches the utxos
-// associated with our keys?
-func getUTXOs() []*pb.Transaction {
-    // Kind of wasteful on space, surely a better way
-    sent := make([]*pb.Transaction, 0)
-    received := make([]*pb.Transaction, 0)
-    utxos := make([]*pb.Transaction, 0)
-    // Right now we walk every block and transaction
-    // Maybe there is a way to use the merkle root here?
-    // Make two lists --> inputs from our pubkey and outputs to our pubkey
-    // Then walk the outputs looking to see if that output transaction is referenced
-    // anywhere in an input, then the utxo was spent
-    for _, block := range blockChain.blocks {
-        for _, transaction := range block.Transactions {
-            if bytes.Equal(transaction.ReceiverPubKey, getPubKey()) {
-                received = append(received, transaction) 
-            }
-            if bytes.Equal(transaction.SenderPubKey, getPubKey()) {
-                sent = append(sent, transaction) 
-            }
-        } 
-    }
-    spent := false
-    for _, candidateUTXO := range received {
-        fmt.Println(getTransactionString(candidateUTXO))
-        spent = false
-        for _, spentTX := range sent {
-            if bytes.Equal(spentTX.InputUTXO, getTransactionHash(candidateUTXO)) {
-                spent = true 
-                fmt.Println("spent ^")
-            }
-        }
-        if !spent {
-            utxos = append(utxos, candidateUTXO)
-        }
-    }
-    return utxos 
-}
-
-// Find a specific UTXO of ours to reference in a new transaction
-// needs to be > desiredAmount.
-func getUTXO(desiredAmount uint64) *pb.Transaction {
-    for _, utxo := range getUTXOs() {
-        if utxo.Value >= desiredAmount {
-            return utxo
-        } 
-    }
-    // No such utxo
-    return nil
-}
-
-func getBalance() uint64 {
-    var balance uint64
-    for _, utxo := range getUTXOs() {
-        balance += utxo.Value
-    }
-    return balance
-}
-
-func (s *server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, error) {
+func (s *Server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, error) {
     var balance pb.Balance
-    balance.Balance = getBalance()
+    balance.Balance = s.Blockchain.getBalance(s.Wallet.key)
     return &balance, nil
 }

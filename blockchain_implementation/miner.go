@@ -14,6 +14,7 @@ import (
     "strconv"
     "time"
     "net"
+    "crypto/ecdsa"
     "google.golang.org/grpc/peer"
 )
 
@@ -25,8 +26,6 @@ type Blockchain struct {
     nextBlockNum int
     target []byte // difficulty for mining
 }
-
-var blockChain *Blockchain
 
 func (b *Blockchain) setTarget(inputTarget []byte) {
     b.target = inputTarget
@@ -52,6 +51,65 @@ func (b *Blockchain) addGenesisBlock() {
     b.tipsOfChains = append(b.tipsOfChains, &genesis) 
 }
 
+func (blockChain Blockchain) getUTXO(key *ecdsa.PrivateKey, desiredAmount uint64) *pb.Transaction {
+    for _, utxo := range blockChain.getUTXOs(key) {
+        if utxo.Value >= desiredAmount {
+            return utxo
+        } 
+    }
+    // No such utxo
+    return nil
+}
+
+func (blockChain Blockchain) getBalance(key *ecdsa.PrivateKey) uint64 {
+    var balance uint64
+    for _, utxo := range blockChain.getUTXOs(key) {
+        balance += utxo.Value
+    }
+    return balance
+}
+
+
+// Walk the blockchain looking for references to our key 
+// Maybe the wallet software normally just caches the utxos
+// associated with our keys?
+func (blockChain Blockchain) getUTXOs(key *ecdsa.PrivateKey) []*pb.Transaction {
+    // Kind of wasteful on space, surely a better way
+    sent := make([]*pb.Transaction, 0)
+    received := make([]*pb.Transaction, 0)
+    utxos := make([]*pb.Transaction, 0)
+    // Right now we walk every block and transaction
+    // Maybe there is a way to use the merkle root here?
+    // Make two lists --> inputs from our pubkey and outputs to our pubkey
+    // Then walk the outputs looking to see if that output transaction is referenced
+    // anywhere in an input, then the utxo was spent
+    for _, block := range blockChain.blocks {
+        for _, transaction := range block.Transactions {
+            if bytes.Equal(transaction.ReceiverPubKey, getPubKeyBytes(key)) {
+                received = append(received, transaction) 
+            }
+            if bytes.Equal(transaction.SenderPubKey, getPubKeyBytes(key)) {
+                sent = append(sent, transaction) 
+            }
+        } 
+    }
+    spent := false
+    for _, candidateUTXO := range received {
+        fmt.Println(getTransactionString(candidateUTXO))
+        spent = false
+        for _, spentTX := range sent {
+            if bytes.Equal(spentTX.InputUTXO, getTransactionHash(candidateUTXO)) {
+                spent = true 
+                fmt.Println("spent ^")
+            }
+        }
+        if !spent {
+            utxos = append(utxos, candidateUTXO)
+        }
+    }
+    return utxos 
+}
+
 func getBlockString(block *pb.Block) string {
     var buf bytes.Buffer
     buf.WriteString("\nBlock Hash: ")
@@ -74,28 +132,25 @@ func getBlockString(block *pb.Block) string {
     return buf.String()
 }
 
-
-func BlockIsValid(block *pb.Block) bool {
+func blockIsValid(target []byte, block *pb.Block) bool {
     // Check whether the block is mined, its previous block is 
     // mined and all transactions are valid
-    if !CheckHashMined(getBlockHash(block)) {
+    if ! checkHashMined(target, getBlockHash(block)) {
         return false
     }
     for _, trans := range block.Transactions {
-        if !verifyTransaction(trans) {
+        if ! verifyTransaction(trans) {
             return false
         }
     }  
     return true
 }
 
-func CheckHashMined(hash []byte) bool {
-//     var b byte = 20 
-//     return bytes.Equal(hash[0:2], []byte{0x00, 0x00}) && hash[2] < b
-    return bytes.Compare(hash, blockChain.target) < 0
+func checkHashMined(target []byte, hash []byte) bool {
+    return bytes.Compare(hash, target) < 0
 }
 
-func MineBlock(block *pb.Block, quit chan struct{}) bool {
+func mineBlock(target []byte, block *pb.Block, quit chan struct{}) bool {
     // Increment the nonce until the hash starts with 3 zeros.
     for {
         select {
@@ -104,7 +159,7 @@ func MineBlock(block *pb.Block, quit chan struct{}) bool {
             close(quit)
             return false 
         default:
-            if ! CheckHashMined(getBlockHash(block)) {
+            if ! checkHashMined(target, getBlockHash(block)) {
                 // Increment the nonce, append the block data to it then hash it
 //                 fmt.Printf("Mining attempt not successful %v\n", getBlockHash(block))
                 block.Header.Nonce += 1
@@ -117,14 +172,14 @@ func MineBlock(block *pb.Block, quit chan struct{}) bool {
     }
 }
 
-func (s *server) StartMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
+func (s *Server) StartMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
     var reply pb.Empty
     quit = make(chan struct{})
-    go Mine(quit)
+    go mine(s, quit)
     return &reply, nil
 }
 
-func (s *server) StopMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
+func (s *Server) StopMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
     fmt.Println("Stop mining")
     var reply pb.Empty
     if quit != nil {
@@ -138,7 +193,7 @@ func (s *server) StopMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error
 
 // Go routine to continuously mine while still accumulating blocks in the mempool
 // note that we can mine a block without anything in the block and still get paid
-func Mine(quit chan struct{}) {
+func mine(s *Server, quit chan struct{}) {
     // Take whatever is in the mempool right now and start mining it in a block
     for {
         fmt.Println("mining")
@@ -146,34 +201,34 @@ func Mine(quit chan struct{}) {
         var newBlockHeader pb.BlockHeader
         newBlock.Header = &newBlockHeader
         newBlock.Header.TimeStamp = uint64(time.Now().UnixNano())
-        newBlock.Header.PrevBlockHash = getBlockHash(blockChain.tipsOfChains[0])
-        newBlock.Header.Height = uint64(blockChain.nextBlockNum)
+        newBlock.Header.PrevBlockHash = getBlockHash(s.Blockchain.tipsOfChains[0])
+        newBlock.Header.Height = uint64(s.Blockchain.nextBlockNum)
         var mint pb.Transaction
         // Receiver is our key (note need an account before you can mine)
         // Coinbase transaction is actually unsigned
-        mint.ReceiverPubKey = getPubKey()
+        mint.ReceiverPubKey = getPubKeyBytes(s.Wallet.key)
         mint.Value = BLOCK_REWARD
-        mint.Height = uint64(blockChain.nextBlockNum)
+        mint.Height = uint64(s.Blockchain.nextBlockNum)
         newBlock.Transactions = append(newBlock.Transactions, &mint)
         // Now add all the other ones (could be empty)
-        for _, transaction := range memPool {
+        for _, transaction := range s.MemPool.transactions {
             newBlock.Transactions = append(newBlock.Transactions, transaction)
         } 
         // Blocks until mining is complete
         // Need a way to abort if a new block at the same number is received while mining
-        result := MineBlock(&newBlock, quit) 
+        result := mineBlock(s.Blockchain.target, &newBlock, quit) 
         // After mining we cannot modify the block, otherwise its hash will no longer
         // be valid
         if result {
             for i := range newBlock.Transactions {
-                delete(memPool, string(getTransactionHash(newBlock.Transactions[i])))
+                delete(s.MemPool.transactions, string(getTransactionHash(newBlock.Transactions[i])))
             } 
-            blockChain.blocks[string(getBlockHash(&newBlock))] = &newBlock
-            blockChain.tipsOfChains[0] = &newBlock
-            blockChain.nextBlockNum += 1
+            s.Blockchain.blocks[string(getBlockHash(&newBlock))] = &newBlock
+            s.Blockchain.tipsOfChains[0] = &newBlock
+            s.Blockchain.nextBlockNum += 1
             // Broadcast this block
             // Send block to all peers. Block is valid since we just mined it
-            for _, myPeer := range peerList {
+            for _, myPeer := range s.peerList {
                 // Find which one of our IP addresses is in the same network as the peer
                 ipAddr, _ := net.ResolveIPAddr("ip", myPeer.sourceIP)
                 // This cast works because ipAddr is a pointer and the pointer to ipAddr does implement 
@@ -193,7 +248,6 @@ func Mine(quit chan struct{}) {
 func getLongestChain() *pb.Block {
     return nil
 }
-
 
 func getBlockHash(block *pb.Block) []byte {
     // TODO: split into getting the headers hash
