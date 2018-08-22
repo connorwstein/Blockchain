@@ -14,6 +14,15 @@ Miners
 - Aggregate transactions from the mempool, attempting to mine for mining rewards
 - If successful in mining a block, update the mempool and broadcast the new block
 
+Remaining
+- Handling temporary forks and switching to longest chain if for example a secondary chain becomes longer
+- Handling orphans (out of order blocks)
+- Handling change (spending only part of a previous UTXO)
+- Spending validation
+- Figure out how to write automated tests
+- Figure out how to share a library between client and server for things like hashing a block, stringifying a block
+- I'm sure this code is atrocious, need to clean it up while reading effective go
+
 TO SKIP
 - Real bootstrapping
 - Adjusting mining difficulty

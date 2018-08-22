@@ -73,7 +73,6 @@ service Transactions {
 }
 
 service Blocks {
-    rpc SendBlock(Block) returns (Empty) {} 
     rpc ReceiveBlock(Block) returns (Empty) {}
 }
 

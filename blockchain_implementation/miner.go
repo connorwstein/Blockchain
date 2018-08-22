@@ -9,7 +9,8 @@ import (
     "golang.org/x/net/context"
     "bytes"
     "encoding/hex"
-//     "encoding/binary"
+    "crypto/sha256"
+    "encoding/binary"
     "strconv"
     "time"
     "net"
@@ -48,7 +49,7 @@ func BlockIsValid(block *pb.Block) bool {
         return false
     }
     for _, trans := range block.Transactions {
-        if !TransactionVerify(trans) {
+        if !verifyTransaction(trans) {
             return false
         }
     }  
@@ -137,7 +138,7 @@ func Mine(quit chan struct{}) {
         // be valid
         if result {
             for i := range newBlock.Transactions {
-                delete(memPool, string(GetHash(newBlock.Transactions[i])))
+                delete(memPool, string(getTransactionHash(newBlock.Transactions[i])))
             } 
             blockChain[string(getBlockHash(&newBlock))] = &newBlock
             tipsOfChains[0] = &newBlock
@@ -160,4 +161,46 @@ func Mine(quit chan struct{}) {
     }
 }
 
+// Walk all the tips of the chains looking for the longest one
+func getLongestChain() *pb.Block {
+    return nil
+}
 
+func addGenesisBlock() {
+    var genesis pb.Block
+    var genesisHeader pb.BlockHeader
+    // Block # 1
+    genesisHeader.Height = 1
+    genesisHeader.PrevBlockHash = make([]byte, 32)
+    genesisHeader.MerkleRoot = make([]byte, 32)
+    genesis.Header = &genesisHeader
+    blockNum = 2 // Next block num
+    blockChain[string(getBlockHash(&genesis))] = &genesis
+    // Currently the longest chain is this block to build on
+    // top of
+    tipsOfChains = append(tipsOfChains, &genesis) 
+}
+
+func getBlockHash(block *pb.Block) []byte {
+    // TODO: split into getting the headers hash
+    // and the transactions hash 
+	toHash := make([]byte, 0)
+    // PrevBlockHash can be nil if it is the genesis block
+	toHash = append(toHash, block.Header.PrevBlockHash...)
+	toHash = append(toHash, block.Header.MerkleRoot...)
+    value := make([]byte, 8)
+    binary.LittleEndian.PutUint64(value, block.Header.TimeStamp)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint64(value, block.Header.Height)
+    toHash = append(toHash, value...)
+    value = make([]byte, 4)
+    binary.LittleEndian.PutUint32(value, block.Header.DifficultyTarget)
+    toHash = append(toHash, value...)
+    binary.LittleEndian.PutUint32(value, block.Header.Nonce)
+    toHash = append(toHash, value...)
+    for _, trans := range block.Transactions {
+	    toHash = append(toHash, getTransactionHash(trans)...)
+    }
+	sum := sha256.Sum256(toHash)
+    return sum[:]
+}

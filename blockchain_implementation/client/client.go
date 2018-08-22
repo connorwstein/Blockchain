@@ -49,7 +49,7 @@ func getBlockHash(block *pb.Block) []byte {
     binary.LittleEndian.PutUint32(value, block.Header.Nonce)
     toHash = append(toHash, value...)
     for _, trans := range block.Transactions {
-	    toHash = append(toHash, GetHash(trans)...)
+	    toHash = append(toHash, getTransactionHash(trans)...)
     }
 	sum := sha256.Sum256(toHash)
     return sum[:]
@@ -79,7 +79,7 @@ func getBlockString(block *pb.Block) string {
 }
 
 
-func GetHash(transaction *pb.Transaction) []byte {
+func getTransactionHash(transaction *pb.Transaction) []byte {
     // SHA hash is 32 bytes
     // TODO: use a writer here
 	toHash := make([]byte, 0)
@@ -98,7 +98,7 @@ func GetHash(transaction *pb.Transaction) []byte {
 func getTransactionString(transaction *pb.Transaction) string {
     var buf bytes.Buffer
     buf.WriteString("\nTransaction Hash: ")
-    buf.WriteString(hex.EncodeToString(GetHash(transaction)[:]))
+    buf.WriteString(hex.EncodeToString(getTransactionHash(transaction)[:]))
     buf.WriteString("\nInput UTXO: ")
     buf.WriteString(hex.EncodeToString(transaction.InputUTXO[:]))
     buf.WriteString("\nSender: ")
