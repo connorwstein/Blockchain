@@ -15,6 +15,7 @@ import (
     "strings"
     "google.golang.org/grpc/peer"
     pb "./protos"
+    "encoding/hex"
 //     "math/big"
 //     "encoding/hex"
 //     "strconv"
@@ -43,18 +44,18 @@ var (
     // This makes it easy to look up a specific block
     // Need a way to know which blocks are part of the our main chain
     // and which ones are secondary/other competing chains
-    blockChain map[string]*pb.Block
+//     blockChain map[string]*pb.Block
     // Maintain a list of blocks which are the tips of various chains, one of which is the main chain?
     // Also need to maintain a list of orphaned blocks to be added to chain once their parent arrives
     // For simplicity lets assume that length of chain represents work that went into it
     // (not always true as forks can span re-targets (difficulty increases). This way we can just check the 
     // height in the block and use that.
-    tipsOfChains []*pb.Block 
+//     tipsOfChains []*pb.Block 
     key *ecdsa.PrivateKey
     // I think we will need a pool of orphan blocks as well
     // This blockNum is the number of the next block we expect to add to the chain either by
     // mining or by receiving a new block
-    blockNum int
+//     blockNum int
 )
 
 type server struct{}
@@ -132,19 +133,19 @@ func (s *server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
     // next one
 
     blockHash := string(getBlockHash(in))
-    if _, ok := blockChain[blockHash]; ok {
+    if _, ok := blockChain.blocks[blockHash]; ok {
         fmt.Printf("Already have block %v", blockHash)
         return &reply, nil
     }
     // If the block number the next block we were looking for update it
     // TODO: handle out of order (orphan blocks)
-    if int(in.Header.Height) == blockNum {
-        blockNum = int(in.Header.Height) + 1
+    if int(in.Header.Height) == blockChain.nextBlockNum {
+        blockChain.nextBlockNum = int(in.Header.Height) + 1
     }
     fmt.Println("Received valid new block adding to local chain\n", 
                getBlockString(in))
-    blockChain[blockHash] = in
-    tipsOfChains[0] = in 
+    blockChain.blocks[blockHash] = in
+    blockChain.tipsOfChains[0] = in 
     // Forward this new block along
     for _, myPeer := range peerList {
         if senderIP ==  "" || myPeer.peerIP == senderIP {
@@ -183,11 +184,11 @@ func (s *server) GetAddress(ctx context.Context, in *pb.Empty) (*pb.AccountCreat
 }
 
 func (s *server) GetBlocks(in *pb.Empty, stream pb.State_GetBlocksServer) error {
-    fmt.Println("Get blocks ", len(blockChain))
+    fmt.Println("Get blocks ", len(blockChain.blocks))
     // Walk the mempool 
     // This is the only slow part, is building a sorted list
-    orderedBlocks := make([]*pb.Block, len(blockChain))
-    for _, block := range blockChain {
+    orderedBlocks := make([]*pb.Block, len(blockChain.blocks))
+    for _, block := range blockChain.blocks {
         orderedBlocks[block.Header.Height - 1] = block
     }
     for _, block := range orderedBlocks {
@@ -292,26 +293,22 @@ func initBlockChain() []string {
                          "172.24.0.2", "172.24.0.3"}
     nodeList = removeOurAddress(nodeList)
     memPool = make(map[string]*pb.Transaction, 0)
-    blockChain = make(map[string]*pb.Block, 0)
-    // List of blocks at the ends of chains
-    tipsOfChains = make([]*pb.Block, 0)
-    addGenesisBlock() 
+    blockChain = &Blockchain{blocks: make(map[string]*pb.Block, 0), 
+                             tipsOfChains: make([]*pb.Block, 0), 
+                             nextBlockNum: 1}
+
+    target, _ := hex.DecodeString(strings.Repeat("f", 19))
+    blockChain.setTarget(target)
+    blockChain.addGenesisBlock()
     return nodeList
 }
 
-
 func main() {
     fmt.Println("Listening")
-    // TODO: pass an argument to indicate whether we are a miner or not
     nodeList := initBlockChain()
-    // Problem: if they all have a different number of peers but need to connect to all of them because
-    // the whole network will not be reachable. However, since we have a list of the all the nodes ips (cheating) 
-    // you can periodically try to connect to all of them. This way eventually everyone will be peering with everyone they can.
-    // In the real network you would ask some DNS seeds for stable nodes to connect to as peers for the first time.
     ticker := time.NewTicker(PEER_CHECK * time.Millisecond)
     go func() {
         for _ = range ticker.C {
-            // TODO: handle peers dying (nice to have)
             connectToPeers(nodeList)
         }
     }()

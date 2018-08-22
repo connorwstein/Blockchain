@@ -19,6 +19,39 @@ import (
 
 var quit chan struct{}
 
+type Blockchain struct {
+    blocks map[string]*pb.Block
+    tipsOfChains []*pb.Block
+    nextBlockNum int
+    target []byte // difficulty for mining
+}
+
+var blockChain *Blockchain
+
+func (b *Blockchain) setTarget(inputTarget []byte) {
+    b.target = inputTarget
+}
+
+func (b Blockchain) String() string {
+    // Print the blocks in sorted order
+    return ""
+}
+
+func (b *Blockchain) addGenesisBlock() {
+    var genesis pb.Block
+    var genesisHeader pb.BlockHeader
+    // Block # 1
+    genesisHeader.Height = 1
+    genesisHeader.PrevBlockHash = make([]byte, 32)
+    genesisHeader.MerkleRoot = make([]byte, 32)
+    genesis.Header = &genesisHeader
+    b.nextBlockNum = 2 // Next block num
+    b.blocks[string(getBlockHash(&genesis))] = &genesis
+    // Currently the longest chain is this block to build on
+    // top of
+    b.tipsOfChains = append(b.tipsOfChains, &genesis) 
+}
+
 func getBlockString(block *pb.Block) string {
     var buf bytes.Buffer
     buf.WriteString("\nBlock Hash: ")
@@ -59,7 +92,7 @@ func BlockIsValid(block *pb.Block) bool {
 func CheckHashMined(hash []byte) bool {
 //     var b byte = 20 
 //     return bytes.Equal(hash[0:2], []byte{0x00, 0x00}) && hash[2] < b
-    return bytes.Equal(hash[0:1], []byte{0x00})
+    return bytes.Compare(hash, blockChain.target) < 0
 }
 
 func MineBlock(block *pb.Block, quit chan struct{}) bool {
@@ -113,19 +146,14 @@ func Mine(quit chan struct{}) {
         var newBlockHeader pb.BlockHeader
         newBlock.Header = &newBlockHeader
         newBlock.Header.TimeStamp = uint64(time.Now().UnixNano())
-        newBlock.Header.PrevBlockHash = getBlockHash(tipsOfChains[0])
-        newBlock.Header.Height = uint64(blockNum)
-        newBlock.Transactions = make([]*pb.Transaction, 0)
-        // Add a transaction to ourselves
-        // HACK: put the block num in sender pub key 
-        // to ensure the hash of this transaction is unique
-        // TODO: figure out how the real system does this
+        newBlock.Header.PrevBlockHash = getBlockHash(blockChain.tipsOfChains[0])
+        newBlock.Header.Height = uint64(blockChain.nextBlockNum)
         var mint pb.Transaction
         // Receiver is our key (note need an account before you can mine)
         // Coinbase transaction is actually unsigned
         mint.ReceiverPubKey = getPubKey()
         mint.Value = BLOCK_REWARD
-        mint.Height = uint64(blockNum)
+        mint.Height = uint64(blockChain.nextBlockNum)
         newBlock.Transactions = append(newBlock.Transactions, &mint)
         // Now add all the other ones (could be empty)
         for _, transaction := range memPool {
@@ -140,9 +168,9 @@ func Mine(quit chan struct{}) {
             for i := range newBlock.Transactions {
                 delete(memPool, string(getTransactionHash(newBlock.Transactions[i])))
             } 
-            blockChain[string(getBlockHash(&newBlock))] = &newBlock
-            tipsOfChains[0] = &newBlock
-            blockNum += 1
+            blockChain.blocks[string(getBlockHash(&newBlock))] = &newBlock
+            blockChain.tipsOfChains[0] = &newBlock
+            blockChain.nextBlockNum += 1
             // Broadcast this block
             // Send block to all peers. Block is valid since we just mined it
             for _, myPeer := range peerList {
@@ -166,20 +194,6 @@ func getLongestChain() *pb.Block {
     return nil
 }
 
-func addGenesisBlock() {
-    var genesis pb.Block
-    var genesisHeader pb.BlockHeader
-    // Block # 1
-    genesisHeader.Height = 1
-    genesisHeader.PrevBlockHash = make([]byte, 32)
-    genesisHeader.MerkleRoot = make([]byte, 32)
-    genesis.Header = &genesisHeader
-    blockNum = 2 // Next block num
-    blockChain[string(getBlockHash(&genesis))] = &genesis
-    // Currently the longest chain is this block to build on
-    // top of
-    tipsOfChains = append(tipsOfChains, &genesis) 
-}
 
 func getBlockHash(block *pb.Block) []byte {
     // TODO: split into getting the headers hash

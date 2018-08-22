@@ -47,6 +47,10 @@ func TestReceive(t *testing.T) {
     if memPool[transHash].Value != testVal {
         t.Fail()
     }
+    // Note balance should still be zero because no block has been mined
+    if getBalance() != 0 {
+        t.Fail()
+    }
 }
 
 func TestSend(t *testing.T) {

@@ -203,7 +203,7 @@ func getUTXOs() []*pb.Transaction {
     // Make two lists --> inputs from our pubkey and outputs to our pubkey
     // Then walk the outputs looking to see if that output transaction is referenced
     // anywhere in an input, then the utxo was spent
-    for _, block := range blockChain {
+    for _, block := range blockChain.blocks {
         for _, transaction := range block.Transactions {
             if bytes.Equal(transaction.ReceiverPubKey, getPubKey()) {
                 received = append(received, transaction) 

@@ -22,6 +22,7 @@ Remaining
 - Figure out how to write automated tests
 - Figure out how to share a library between client and server for things like hashing a block, stringifying a block
 - I'm sure this code is atrocious, need to clean it up while reading effective go
+- Nice to have handle peers dying
 
 TO SKIP
 - Real bootstrapping
