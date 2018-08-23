@@ -85,6 +85,7 @@ func (blockChain Blockchain) getUTXOs(key *ecdsa.PrivateKey) []*pb.Transaction {
     // anywhere in an input, then the utxo was spent
     for _, block := range blockChain.blocks {
         for _, transaction := range block.Transactions {
+            fmt.Println("transaction ", getTransactionString(transaction))
             if bytes.Equal(transaction.ReceiverPubKey, getPubKeyBytes(key)) {
                 received = append(received, transaction) 
             }
@@ -136,10 +137,12 @@ func blockIsValid(target []byte, block *pb.Block) bool {
     // Check whether the block is mined, its previous block is 
     // mined and all transactions are valid
     if ! checkHashMined(target, getBlockHash(block)) {
+        fmt.Println("invalid block hash not mined, target:", target)
         return false
     }
     for _, trans := range block.Transactions {
         if ! verifyTransaction(trans) {
+            fmt.Println("transaction invalid in block")
             return false
         }
     }  
@@ -151,6 +154,7 @@ func checkHashMined(target []byte, hash []byte) bool {
 }
 
 func mineBlock(target []byte, block *pb.Block, quit chan struct{}) bool {
+    fmt.Println("hash target: ", target)
     // Increment the nonce until the hash starts with 3 zeros.
     for {
         select {

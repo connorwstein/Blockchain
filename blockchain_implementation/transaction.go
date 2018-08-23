@@ -33,17 +33,17 @@ func (memPool *MemPool) addTransactionToMemPool(transaction *pb.Transaction) {
 
 
 func getPubKeyBytes(key *ecdsa.PrivateKey) []byte {
-    pubKeyBytes := make([]byte, 64)
-    pubKeyBytes = append(pubKeyBytes, key.PublicKey.X.Bytes()...)
-    pubKeyBytes = append(pubKeyBytes,  key.PublicKey.Y.Bytes()...)
-    return pubKeyBytes
+    buf := new(bytes.Buffer)
+    buf.Write(key.PublicKey.X.Bytes())
+    buf.Write(key.PublicKey.Y.Bytes())
+    return buf.Bytes() 
 }
 
 func getSignatureBytes(r *big.Int, s *big.Int) [] byte {
-    signatureBytes := make([]byte, 64)
-    signatureBytes = append(signatureBytes, r.Bytes()...)
-    signatureBytes = append(signatureBytes,  s.Bytes()...)
-    return signatureBytes
+    buf := new(bytes.Buffer)
+    buf.Write(r.Bytes())
+    buf.Write(s.Bytes())
+    return buf.Bytes() 
 }
 
 func signTransaction(transaction *pb.Transaction, key *ecdsa.PrivateKey) *pb.Transaction {
@@ -65,10 +65,12 @@ func verifyTransaction(transaction *pb.Transaction) bool {
     // Signature is simply R and S (both 32 byte numbers) concatentated
     // Convert to big ints
     // Pub key will be concatenation of X and Y big ints converted to bytes 
-    if len(transaction.SenderPubKey) <= 4 {
+    if len(transaction.SenderPubKey) != 154 {
         // Coinbase transaction
+        fmt.Println("Coinbase transaction")
         return true
     }
+    fmt.Println("sender: ", len(transaction.SenderPubKey))
     pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
     pubKey.X = new(big.Int)
     pubKey.Y = new(big.Int)
@@ -80,6 +82,7 @@ func verifyTransaction(transaction *pb.Transaction) bool {
     s.SetBytes(transaction.Signature[32:])
     fmt.Println(r, s)
     verifystatus := ecdsa.Verify(&pubKey, getTransactionHash(transaction), r, s)
+    fmt.Println("Verify: ", verifystatus)
     return verifystatus 
 }
 
@@ -177,7 +180,7 @@ func (s *Server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
     var reply pb.Empty
     senderIP := getSenderIP(ctx)
     if ! verifyTransaction(in)  {
-        fmt.Println("Reject transaction, invalid signature")
+        fmt.Println("Reject transaction, invalid signature ", in.SenderPubKey)
         return &reply, nil
     }
     s.MemPool.addTransactionToMemPool(in) 

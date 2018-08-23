@@ -242,7 +242,7 @@ func (s Server) connectToPeers(nodeList []string) {
     }()
 }
 
-func (s Server) setIPs() {
+func (s *Server) setIPs() {
     ifaces, _ := net.Interfaces()
     // Remove our own address from the node list
     for _, i := range ifaces {
@@ -263,18 +263,22 @@ func (s Server) setIPs() {
 }
 
 func removeOurIPs(ourIPs []net.IPNet, otherIPs []string) []string {
-    for i := range ourIPs {
-        for j := range otherIPs {
-            if ourIPs[i].IP.String() == otherIPs[j] {
-                otherIPs = append(otherIPs[:i], otherIPs[i+1:]...)
-                break
+    var result []string
+    for i := range otherIPs {
+        ours := false 
+        for j := range ourIPs {
+            if ourIPs[j].IP.String() == otherIPs[i] {
+                ours = true 
             }
         }
+        if ! ours {
+            result = append(result, otherIPs[i])
+        }
     }
-    return otherIPs
+    return result
 }
 
-func initServer(nodeList []string) *Server {
+func initServer() *Server {
     // Don't need to initialize the wallet
     var server Server = Server{
                       ips: make([]net.IPNet, 0),
@@ -284,8 +288,11 @@ func initServer(nodeList []string) *Server {
                                              tipsOfChains: make([]*pb.Block, 0), 
                                              nextBlockNum: 1}}
     server.setIPs()
-    nodeList = removeOurIPs(server.ips, nodeList)
-    target, _ := hex.DecodeString(strings.Repeat("f", 19))
+    target, err := hex.DecodeString(strings.Join([]string{"00", strings.Repeat("f", 18)}, ""))
+    if err != nil {
+        fmt.Println(err)
+    }
+    fmt.Println("target:", target)
     server.Blockchain.setTarget(target)
     server.Blockchain.addGenesisBlock()
     return &server
@@ -297,6 +304,8 @@ func main() {
                          "172.26.0.4", "172.25.0.2", "172.25.0.3", 
                          "172.24.0.2", "172.24.0.3"}
     server := initServer(nodeList)
+    server.setIPs()
+    nodeList = removeOurIPs(server.ips, nodeList)
     server.connectToPeers(nodeList)
     startServer(server, PORT)
 }
