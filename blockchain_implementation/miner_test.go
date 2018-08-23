@@ -7,15 +7,12 @@ import (
     "golang.org/x/net/context"
 //     "crypto/ecdsa"
 //     "crypto/rand"
+//     "crypto/elliptic"
     "time"
     "errors"
     "strings"
     "encoding/hex"
 )
-
-var nodeList []string = []string{"172.27.0.2", "172.27.0.3", "172.26.0.2", 
-                         "172.26.0.4", "172.25.0.2", "172.25.0.3", 
-                         "172.24.0.2", "172.24.0.3"}
 
 // Returns error if the block was not mined
 // in time, note this depends on the difficulty
@@ -64,7 +61,7 @@ func mineBlocks(s *Server, t *testing.T, minChainLength int) {
 
 // Check balance updates upon mining
 func TestMineBlock(t *testing.T) {
-    s := initServer(nodeList)
+    s := initServer()
     s.Wallet.createKey() 
     // Relax difficulty for this
     target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
@@ -78,15 +75,4 @@ func TestMineBlock(t *testing.T) {
     }
 }
 
-// Mine a block to fill the balance with some coin
-// then send a transaction, mine another block to validate
-// that transaction and ensure the balance is correct after that
-func TestBalanceDecrement(t *testing.T) {
-    s := initServer(nodeList)
-    s.Wallet.createKey() 
-    // Relax difficulty for this
-    target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
-    s.Blockchain.setTarget(target)
-    mineBlocks(s, t, 2)
-    t.Log(s.Blockchain.getBalance(s.Wallet.key))
-}
+

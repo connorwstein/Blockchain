@@ -9,7 +9,7 @@ import (
 )
 
 func TestVerifyTransaction(t *testing.T) {
-    s := initServer(nodeList)
+    s := initServer()
     s.Wallet.createKey() 
     // As if we had mined some coin earlier
     // Create a signed transaction then ensure that it verifies correctly 
@@ -24,7 +24,7 @@ func TestVerifyTransaction(t *testing.T) {
 }
 
 func TestReceive(t *testing.T) {
-    s := initServer(nodeList)
+    s := initServer()
     s.Wallet.createKey() 
     testVal := uint64(100)
     req := pb.Transaction{ReceiverPubKey: getPubKeyBytes(s.Wallet.key), 
@@ -49,8 +49,13 @@ func TestReceive(t *testing.T) {
     }
 }
 
+// Reject a faulty transaction where someone claims to 
+// send more than they actually have
+func TestReceiveReject(t *testing.T) {
+}
+
 func TestSend(t *testing.T) {
-    s := initServer(nodeList)
+    s := initServer()
     s.Wallet.createKey() 
     req := pb.Transaction{Value: 100}
     // Should fail because we have no money

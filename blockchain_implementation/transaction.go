@@ -94,7 +94,7 @@ func getTransactionString(transaction *pb.Transaction) string {
     buf.WriteString(hex.EncodeToString(transaction.InputUTXO[:]))
     buf.WriteString("\nSender: ")
     // Two 32 byte integers concated 
-    if len(transaction.SenderPubKey) > 4 {
+    if len(transaction.SenderPubKey) > 0 {
     pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
     pubKey.X = new(big.Int)
     pubKey.Y = new(big.Int)

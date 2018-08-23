@@ -303,8 +303,7 @@ func main() {
     nodeList := []string{"172.27.0.2", "172.27.0.3", "172.26.0.2", 
                          "172.26.0.4", "172.25.0.2", "172.25.0.3", 
                          "172.24.0.2", "172.24.0.3"}
-    server := initServer(nodeList)
-    server.setIPs()
+    server := initServer()
     nodeList = removeOurIPs(server.ips, nodeList)
     server.connectToPeers(nodeList)
     startServer(server, PORT)

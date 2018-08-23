@@ -1,6 +1,7 @@
 syntax = "proto3";
 package protos;
 
+
 // Maybe look at adding the scripting functionality to 
 // unlock UTXOs
 // Each transaction references as input a UTXO from the existing
@@ -12,6 +13,8 @@ message Transaction {
     // is like the source.
     // Unless it is money creation which we can signify as 
     // zeroed bytes for example
+    // Repeated because you can reference multiple 
+    // UTXOs to be able to make a transaction
     bytes inputUTXO = 1;
     // To make life easier for implementing coinbase transactions
     // Lets also include the source pubKey, in theory you don't 
@@ -27,6 +30,8 @@ message Transaction {
     // script with a signature signed by the private key associated
     // with that public key
     bytes signature = 4;
+    // Repeated because for each receiverPubKey we need a value
+    // this allows us to have change
     uint64 value = 5;
     // Height is guaranteed to be unique per miner, in the real bitcoin network this
     // goes in the coinbase script arbirary data section but in general this 

@@ -34,6 +34,8 @@ type Transaction struct {
 	// is like the source.
 	// Unless it is money creation which we can signify as
 	// zeroed bytes for example
+	// Repeated because you can reference multiple
+	// UTXOs to be able to make a transaction
 	InputUTXO []byte `protobuf:"bytes,1,opt,name=inputUTXO,proto3" json:"inputUTXO,omitempty"`
 	// To make life easier for implementing coinbase transactions
 	// Lets also include the source pubKey, in theory you don't
@@ -49,7 +51,9 @@ type Transaction struct {
 	// script with a signature signed by the private key associated
 	// with that public key
 	Signature []byte `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
-	Value     uint64 `protobuf:"varint,5,opt,name=value,proto3" json:"value,omitempty"`
+	// Repeated because for each receiverPubKey we need a value
+	// this allows us to have change
+	Value uint64 `protobuf:"varint,5,opt,name=value,proto3" json:"value,omitempty"`
 	// Height is guaranteed to be unique per miner, in the real bitcoin network this
 	// goes in the coinbase script arbirary data section but in general this
 	// resolves the issue of identical coinbase transactions for the same miner
@@ -64,7 +68,7 @@ func (m *Transaction) Reset()         { *m = Transaction{} }
 func (m *Transaction) String() string { return proto.CompactTextString(m) }
 func (*Transaction) ProtoMessage()    {}
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{0}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{0}
 }
 func (m *Transaction) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Transaction.Unmarshal(m, b)
@@ -145,7 +149,7 @@ func (m *BlockHeader) Reset()         { *m = BlockHeader{} }
 func (m *BlockHeader) String() string { return proto.CompactTextString(m) }
 func (*BlockHeader) ProtoMessage()    {}
 func (*BlockHeader) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{1}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{1}
 }
 func (m *BlockHeader) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_BlockHeader.Unmarshal(m, b)
@@ -220,7 +224,7 @@ func (m *Block) Reset()         { *m = Block{} }
 func (m *Block) String() string { return proto.CompactTextString(m) }
 func (*Block) ProtoMessage()    {}
 func (*Block) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{2}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{2}
 }
 func (m *Block) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Block.Unmarshal(m, b)
@@ -264,7 +268,7 @@ func (m *Empty) Reset()         { *m = Empty{} }
 func (m *Empty) String() string { return proto.CompactTextString(m) }
 func (*Empty) ProtoMessage()    {}
 func (*Empty) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{3}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{3}
 }
 func (m *Empty) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Empty.Unmarshal(m, b)
@@ -294,7 +298,7 @@ func (m *Hello) Reset()         { *m = Hello{} }
 func (m *Hello) String() string { return proto.CompactTextString(m) }
 func (*Hello) ProtoMessage()    {}
 func (*Hello) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{4}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{4}
 }
 func (m *Hello) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Hello.Unmarshal(m, b)
@@ -324,7 +328,7 @@ func (m *Ack) Reset()         { *m = Ack{} }
 func (m *Ack) String() string { return proto.CompactTextString(m) }
 func (*Ack) ProtoMessage()    {}
 func (*Ack) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{5}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{5}
 }
 func (m *Ack) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Ack.Unmarshal(m, b)
@@ -355,7 +359,7 @@ func (m *Account) Reset()         { *m = Account{} }
 func (m *Account) String() string { return proto.CompactTextString(m) }
 func (*Account) ProtoMessage()    {}
 func (*Account) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{6}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{6}
 }
 func (m *Account) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Account.Unmarshal(m, b)
@@ -393,7 +397,7 @@ func (m *AccountCreated) Reset()         { *m = AccountCreated{} }
 func (m *AccountCreated) String() string { return proto.CompactTextString(m) }
 func (*AccountCreated) ProtoMessage()    {}
 func (*AccountCreated) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{7}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{7}
 }
 func (m *AccountCreated) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AccountCreated.Unmarshal(m, b)
@@ -431,7 +435,7 @@ func (m *Balance) Reset()         { *m = Balance{} }
 func (m *Balance) String() string { return proto.CompactTextString(m) }
 func (*Balance) ProtoMessage()    {}
 func (*Balance) Descriptor() ([]byte, []int) {
-	return fileDescriptor_coin_01cd071e6758d1c1, []int{8}
+	return fileDescriptor_coin_66bcdfb9fafdb7bd, []int{8}
 }
 func (m *Balance) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Balance.Unmarshal(m, b)
@@ -1087,9 +1091,9 @@ var _Miner_serviceDesc = grpc.ServiceDesc{
 	Metadata: "coin.proto",
 }
 
-func init() { proto.RegisterFile("coin.proto", fileDescriptor_coin_01cd071e6758d1c1) }
+func init() { proto.RegisterFile("coin.proto", fileDescriptor_coin_66bcdfb9fafdb7bd) }
 
-var fileDescriptor_coin_01cd071e6758d1c1 = []byte{
+var fileDescriptor_coin_66bcdfb9fafdb7bd = []byte{
 	// 594 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x54, 0xc1, 0x6e, 0xd3, 0x40,
 	0x10, 0x8d, 0xdb, 0x38, 0x56, 0x27, 0x49, 0x8b, 0x06, 0x54, 0x59, 0x11, 0xa0, 0xca, 0x20, 0xa8,
