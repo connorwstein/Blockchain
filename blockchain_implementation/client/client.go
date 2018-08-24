@@ -78,52 +78,63 @@ func getBlockString(block *pb.Block) string {
     return buf.String()
 }
 
-
 func getTransactionHash(transaction *pb.Transaction) []byte {
-    // SHA hash is 32 bytes
-    // TODO: use a writer here
-	toHash := make([]byte, 0)
-	toHash = append(toHash, []byte(transaction.InputUTXO)...)
-	toHash = append(toHash, []byte(transaction.ReceiverPubKey)...)
-	toHash = append(toHash, []byte(transaction.SenderPubKey)...)
-    value := make([]byte, 8)
-	binary.LittleEndian.PutUint64(value, transaction.Value)
-	toHash = append(toHash, value...)
-	binary.LittleEndian.PutUint64(value, transaction.Height)
-	toHash = append(toHash, value...)
-	sum := sha256.Sum256(toHash)
+    buf := new(bytes.Buffer)
+    for _, inputUTXO := range transaction.Vin {
+	    buf.Write(inputUTXO.TxID)
+        binary.Write(buf, binary.LittleEndian, inputUTXO.Index)
+    } 
+    for _, outputTX := range transaction.Vout {
+	    buf.Write(outputTX.ReceiverPubKey)
+        binary.Write(buf, binary.LittleEndian, outputTX.Value)
+    } 
+    // Height needed to make coinbase transactions unique
+	sum := sha256.Sum256(buf.Bytes())
     return sum[:]
 }
+
+func getTXIString(tx *pb.TXI) string {
+    var buf bytes.Buffer
+    buf.WriteString("\n  TxID:")
+    buf.WriteString(hex.EncodeToString(tx.TxID[:]))
+    buf.WriteString("\n  Index:")
+    buf.WriteString(strconv.Itoa(int(tx.Index)))
+    return buf.String()
+}
+
+func getTXOString(tx *pb.TXO) string {
+    var buf bytes.Buffer
+    buf.WriteString("\n  Receiver:")
+    pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
+    pubKey.X = new(big.Int)
+    pubKey.Y = new(big.Int)
+    pubKey.X.SetBytes(tx.ReceiverPubKey[:32])
+    pubKey.Y.SetBytes(tx.ReceiverPubKey[32:])
+    buf.WriteString(strings.Join([]string{pubKey.X.String(), pubKey.Y.String()}, ""))
+    buf.WriteString("\n  Amount:")
+    buf.WriteString(strconv.Itoa(int(tx.Value)))
+    return buf.String()
+}
+
+
 
 func getTransactionString(transaction *pb.Transaction) string {
     var buf bytes.Buffer
     buf.WriteString("\nTransaction Hash: ")
     buf.WriteString(hex.EncodeToString(getTransactionHash(transaction)[:]))
-    buf.WriteString("\nInput UTXO: ")
-    buf.WriteString(hex.EncodeToString(transaction.InputUTXO[:]))
-    buf.WriteString("\nSender: ")
-    // Two 32 byte integers concated 
-    if len(transaction.SenderPubKey) > 4 {
-    pubKey := ecdsa.PublicKey{Curve: elliptic.P256()}
-    pubKey.X = new(big.Int)
-    pubKey.Y = new(big.Int)
-    pubKey.X.SetBytes(transaction.SenderPubKey[:32])
-    pubKey.Y.SetBytes(transaction.SenderPubKey[32:])
-    buf.WriteString(strings.Join([]string{pubKey.X.String(), pubKey.Y.String()}, ""))
-    } else {
+    buf.WriteString("\nVin: ")
+    if len(transaction.Vin) == 0 {
         buf.WriteString("Miner reward")
     }
-    buf.WriteString("\nReceiver: ")
-    pubKey2 := ecdsa.PublicKey{Curve: elliptic.P256()}
-    pubKey2.X = new(big.Int)
-    pubKey2.Y = new(big.Int)
-    pubKey2.X.SetBytes(transaction.ReceiverPubKey[:32])
-    pubKey2.Y.SetBytes(transaction.ReceiverPubKey[32:])
-    buf.WriteString(strings.Join([]string{pubKey2.X.String(), pubKey2.Y.String()}, ""))
-    buf.WriteString("\nValue: ")
-    buf.WriteString(strconv.Itoa(int(transaction.Value)))
-    buf.WriteString("\nHeight: ")
-    buf.WriteString(strconv.Itoa(int(transaction.Height)))
+    for _, inputUTXO := range transaction.Vin {
+        buf.WriteString("\n TX: ")
+        buf.WriteString(getTXIString(inputUTXO))
+    }
+    buf.WriteString("\nVout: ")
+    for _, outputTX := range transaction.Vout {
+        buf.WriteString("\n TX: ")
+        buf.WriteString(getTXOString(outputTX))
+    }
     return buf.String()
 }
 
@@ -176,7 +187,7 @@ func send(amount int, destination string) {
     conn := connect()
     c := pb.NewTransactionsClient(conn)
     fmt.Println(strconv.Itoa(amount))
-    var trans pb.Transaction
+    var trans pb.TransactionRequest
     trans.Value = uint64(amount)
     // Destination string is two 32 byte integers concatenated
     x := new(big.Int)

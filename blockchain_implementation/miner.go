@@ -25,6 +25,24 @@ type Blockchain struct {
     tipsOfChains []*pb.Block
     nextBlockNum int
     target []byte // difficulty for mining
+    // This an index to lookup a block hash by transaction hash,
+    // the real bitcoin implementation has something similar but heavily cached/optimized
+    // see bitcoin/src/index/txindex.h
+    txIndex map[string]TxIndex
+}
+
+// Block and index of transaction 
+// to quickly look up a transaction
+type TxIndex struct {
+    blockHash string
+    index int
+}
+
+// Wrapper with details about the location
+// of a specific TXI / TXO
+type UTXO struct {
+    transaction *pb.Transaction // transaction which has the UTXO
+    index int // vout index
 }
 
 func (b *Blockchain) setTarget(inputTarget []byte) {
@@ -51,9 +69,11 @@ func (b *Blockchain) addGenesisBlock() {
     b.tipsOfChains = append(b.tipsOfChains, &genesis) 
 }
 
-func (blockChain Blockchain) getUTXO(key *ecdsa.PrivateKey, desiredAmount uint64) *pb.Transaction {
-    for _, utxo := range blockChain.getUTXOs(key) {
-        if utxo.Value >= desiredAmount {
+// TODO: could be a set of utxos 
+func (blockChain Blockchain) getUTXOsToCoverTransaction(key *ecdsa.PrivateKey, desiredAmount uint64) *UTXO {
+//     var currentAmount uint64
+    for _, utxo := range blockChain.getUTXOs(&key.PublicKey) {
+        if blockChain.getValueUTXO(utxo) >= desiredAmount {
             return utxo
         } 
     }
@@ -61,23 +81,46 @@ func (blockChain Blockchain) getUTXO(key *ecdsa.PrivateKey, desiredAmount uint64
     return nil
 }
 
+// TODO this need not be a private key
 func (blockChain Blockchain) getBalance(key *ecdsa.PrivateKey) uint64 {
     var balance uint64
-    for _, utxo := range blockChain.getUTXOs(key) {
-        balance += utxo.Value
+    for _, utxo := range blockChain.getUTXOs(&key.PublicKey) {
+        balance += blockChain.getValueUTXO(utxo)
     }
     return balance
 }
 
 
+func (blockChain Blockchain) getValueUTXO(utxo *UTXO) uint64 {
+    txIndex := blockChain.txIndex[string(getTransactionHash(utxo.transaction))]
+    block := blockChain.blocks[txIndex.blockHash]
+    return block.Transactions[txIndex.index].Vout[utxo.index].Value
+}
+
+func (blockChain Blockchain) getTXO(utxo *UTXO) *pb.TXO {
+    txIndex := blockChain.txIndex[string(getTransactionHash(utxo.transaction))]
+    block := blockChain.blocks[txIndex.blockHash]
+    return block.Transactions[txIndex.index].Vout[utxo.index]
+}
+
+// Given a transaction input, lookup the pubkey of the transaction hash
+// that input references
+func (blockChain Blockchain) getSenderPubKey(txi *pb.TXI) []byte {
+    txIndex := blockChain.txIndex[string(txi.TxID)] 
+    block := blockChain.blocks[txIndex.blockHash]
+    trans := block.Transactions[txIndex.index]
+    txo := trans.Vout[txi.Index]
+    return txo.ReceiverPubKey
+}
+
 // Walk the blockchain looking for references to our key 
 // Maybe the wallet software normally just caches the utxos
 // associated with our keys?
-func (blockChain Blockchain) getUTXOs(key *ecdsa.PrivateKey) []*pb.Transaction {
+func (blockChain Blockchain) getUTXOs(key *ecdsa.PublicKey) []*UTXO {
     // Kind of wasteful on space, surely a better way
-    sent := make([]*pb.Transaction, 0)
-    received := make([]*pb.Transaction, 0)
-    utxos := make([]*pb.Transaction, 0)
+    sent := make([]*UTXO, 0)
+    received := make([]*UTXO, 0)
+    var utxos []*UTXO
     // Right now we walk every block and transaction
     // Maybe there is a way to use the merkle root here?
     // Make two lists --> inputs from our pubkey and outputs to our pubkey
@@ -85,21 +128,38 @@ func (blockChain Blockchain) getUTXOs(key *ecdsa.PrivateKey) []*pb.Transaction {
     // anywhere in an input, then the utxo was spent
     for _, block := range blockChain.blocks {
         for _, transaction := range block.Transactions {
-            fmt.Println("transaction ", getTransactionString(transaction))
-            if bytes.Equal(transaction.ReceiverPubKey, getPubKeyBytes(key)) {
-                received = append(received, transaction) 
+            // Within a transaction there can be multiple inputs and outputs
+//             fmt.Println("transaction ", getTransactionString(transaction))
+            for i, inputUTXO := range transaction.Vin {
+                // If the transaction hash and index in this vin references an output which has our pub key
+                // that means we spent it. 
+                if bytes.Equal(blockChain.getSenderPubKey(inputUTXO), getPubKeyBytesFromPublicKey(key)) {
+                    fmt.Printf("\nSpent %s", getTXIString(inputUTXO))
+                    sent = append(sent, &UTXO{transaction: transaction,
+                                              index: i})
+                }
             }
-            if bytes.Equal(transaction.SenderPubKey, getPubKeyBytes(key)) {
-                sent = append(sent, transaction) 
+            for i, outputTX := range transaction.Vout {
+                if bytes.Equal(outputTX.ReceiverPubKey, getPubKeyBytesFromPublicKey(key)) {
+                    fmt.Printf("\nReceived %s", getTXOString(outputTX))
+                    received = append(received, &UTXO{transaction: transaction,
+                                                      index: i}) 
+                }
             }
         } 
     }
     spent := false
+    // Walk through all transactions which reference us as an output 
+    // check if each one is spent, if not it is a UTXO
     for _, candidateUTXO := range received {
-        fmt.Println(getTransactionString(candidateUTXO))
+//         fmt.Println(getTXOString(blockChain.getTXO(candidateUTXO)))
         spent = false
+        // Loop over the Vin's with our pubkey as the sender (spent)
+        // If the transaction hash of the candidateUTXO matches, we cannot use it
         for _, spentTX := range sent {
-            if bytes.Equal(spentTX.InputUTXO, getTransactionHash(candidateUTXO)) {
+            fmt.Printf("\nCandidate %s", getTransactionString(candidateUTXO.transaction))
+            fmt.Printf("\nSpent %s", getTransactionString(spentTX.transaction))
+            if bytes.Equal(spentTX.transaction.Vin[spentTX.index].TxID, getTransactionHash(candidateUTXO.transaction)) {
                 spent = true 
                 fmt.Println("spent ^")
             }
@@ -133,7 +193,7 @@ func getBlockString(block *pb.Block) string {
     return buf.String()
 }
 
-func blockIsValid(target []byte, block *pb.Block) bool {
+func (blockChain Blockchain) blockIsValid(target []byte, block *pb.Block) bool {
     // Check whether the block is mined, its previous block is 
     // mined and all transactions are valid
     if ! checkHashMined(target, getBlockHash(block)) {
@@ -141,7 +201,7 @@ func blockIsValid(target []byte, block *pb.Block) bool {
         return false
     }
     for _, trans := range block.Transactions {
-        if ! verifyTransaction(trans) {
+        if ! blockChain.verifyTransaction(trans) {
             fmt.Println("transaction invalid in block")
             return false
         }
@@ -154,7 +214,7 @@ func checkHashMined(target []byte, hash []byte) bool {
 }
 
 func mineBlock(target []byte, block *pb.Block, quit chan struct{}) bool {
-    fmt.Println("hash target: ", target)
+//     fmt.Println("hash target: ", target)
     // Increment the nonce until the hash starts with 3 zeros.
     for {
         select {
@@ -168,7 +228,7 @@ func mineBlock(target []byte, block *pb.Block, quit chan struct{}) bool {
 //                 fmt.Printf("Mining attempt not successful %v\n", getBlockHash(block))
                 block.Header.Nonce += 1
             } else {
-                fmt.Printf("Mined block: %s\n", getBlockString(block))
+//                 fmt.Printf("Mined block: %s\n", getBlockString(block))
                 return true
             }
        }
@@ -184,7 +244,7 @@ func (s *Server) StartMining(ctx context.Context, in *pb.Empty) (*pb.Empty, erro
 }
 
 func (s *Server) StopMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
-    fmt.Println("Stop mining")
+//     fmt.Println("Stop mining")
     var reply pb.Empty
     if quit != nil {
         fmt.Println("Closing channel")
@@ -199,8 +259,8 @@ func (s *Server) StopMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error
 // note that we can mine a block without anything in the block and still get paid
 func mine(s *Server, quit chan struct{}) {
     // Take whatever is in the mempool right now and start mining it in a block
+    fmt.Println("mining")
     for {
-        fmt.Println("mining")
         var newBlock pb.Block
         var newBlockHeader pb.BlockHeader
         newBlock.Header = &newBlockHeader
@@ -210,9 +270,12 @@ func mine(s *Server, quit chan struct{}) {
         var mint pb.Transaction
         // Receiver is our key (note need an account before you can mine)
         // Coinbase transaction is actually unsigned
-        mint.ReceiverPubKey = getPubKeyBytes(s.Wallet.key)
-        mint.Value = BLOCK_REWARD
+        var TXO pb.TXO
+        TXO.ReceiverPubKey = getPubKeyBytes(s.Wallet.key)
+        TXO.Value = BLOCK_REWARD
         mint.Height = uint64(s.Blockchain.nextBlockNum)
+        mint.Vout = make([]*pb.TXO, 0)
+        mint.Vout = append(mint.Vout, &TXO)
         newBlock.Transactions = append(newBlock.Transactions, &mint)
         // Now add all the other ones (could be empty)
         for _, transaction := range s.MemPool.transactions {
@@ -224,10 +287,16 @@ func mine(s *Server, quit chan struct{}) {
         // After mining we cannot modify the block, otherwise its hash will no longer
         // be valid
         if result {
+            blockHash := string(getBlockHash(&newBlock))
             for i := range newBlock.Transactions {
                 delete(s.MemPool.transactions, string(getTransactionHash(newBlock.Transactions[i])))
             } 
-            s.Blockchain.blocks[string(getBlockHash(&newBlock))] = &newBlock
+            // index all transactions 
+            for i := range newBlock.Transactions {
+                s.Blockchain.txIndex[string(getTransactionHash(newBlock.Transactions[i]))] = TxIndex{blockHash : blockHash, 
+                                                                                               index: i}
+            }
+            s.Blockchain.blocks[blockHash] = &newBlock
             s.Blockchain.tipsOfChains[0] = &newBlock
             s.Blockchain.nextBlockNum += 1
             // Broadcast this block

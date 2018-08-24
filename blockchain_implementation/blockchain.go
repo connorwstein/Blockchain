@@ -121,7 +121,7 @@ func (s *Server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
     // miners are incentivized to be honest otherwise the block with their reward won't actually be included in the longest chain and is 
     // thus unusable
     // Verify: block is actually mined and transactions are valid
-    if ! blockIsValid(s.Blockchain.target, in) {
+    if ! s.Blockchain.blockIsValid(s.Blockchain.target, in) {
         fmt.Println("Block is invalid")
         fmt.Println(getBlockString(in))
         return &reply, nil
@@ -142,6 +142,11 @@ func (s *Server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
     }
     fmt.Println("Received valid new block adding to local chain\n", 
                getBlockString(in))
+    // Index all the transactions in this block
+    for i := range in.Transactions {
+        s.Blockchain.txIndex[string(getTransactionHash(in.Transactions[i]))] = TxIndex{blockHash : blockHash, 
+                                                                                       index: i}
+    }
     s.Blockchain.blocks[blockHash] = in
     s.Blockchain.tipsOfChains[0] = in 
     // Forward this new block along
@@ -285,6 +290,7 @@ func initServer() *Server {
                       peerList: make(map[string]BlockchainPeer, 0), 
                       MemPool: MemPool{transactions: make(map[string]*pb.Transaction, 0)}, 
                       Blockchain: Blockchain{blocks: make(map[string]*pb.Block, 0), 
+                                             txIndex: make(map[string]TxIndex, 0), 
                                              tipsOfChains: make([]*pb.Block, 0), 
                                              nextBlockNum: 1}}
     server.setIPs()

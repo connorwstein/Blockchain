@@ -1,6 +1,20 @@
 syntax = "proto3";
 package protos;
 
+message TXI {
+    bytes txID = 1; // Some transaction hash
+    // In theory you don't need the senderPubKey / value
+    // because you use the txID and index to look it up
+//    bytes senderPubKey = 2;
+    uint64 index = 3; // index within that transaction which has an output for us
+//   uint64 value = 4;
+}
+message TXO {
+    bytes receiverPubKey = 1;
+    // Just needs
+    uint64 value = 2;
+    //int32 index = 3;
+}
 
 // Maybe look at adding the scripting functionality to 
 // unlock UTXOs
@@ -15,14 +29,14 @@ message Transaction {
     // zeroed bytes for example
     // Repeated because you can reference multiple 
     // UTXOs to be able to make a transaction
-    bytes inputUTXO = 1;
+    repeated TXI vin = 1;
     // To make life easier for implementing coinbase transactions
     // Lets also include the source pubKey, in theory you don't 
     // even need this because the inputUTXO's receiverPubKey
     // is really the source
-    bytes senderPubKey = 2; 
+    //bytes senderPubKey = 2; 
     // Destination of the UTXO
-    bytes receiverPubKey = 3;
+    repeated TXO vout = 3;
     // Ensures the private key associated with the public key in the inputUTXO was actually used to sign this 
     // Note the way it really works is there is a locking and unlocking
     // script, but more or less the locking script just contains the pub
@@ -32,7 +46,7 @@ message Transaction {
     bytes signature = 4;
     // Repeated because for each receiverPubKey we need a value
     // this allows us to have change
-    uint64 value = 5;
+    //repeated uint64 values = 5;
     // Height is guaranteed to be unique per miner, in the real bitcoin network this
     // goes in the coinbase script arbirary data section but in general this 
     // resolves the issue of identical coinbase transactions for the same miner
@@ -72,9 +86,14 @@ service Peering {
     rpc Connect(Hello) returns (Ack) {}
 }
 
+message TransactionRequest {
+    bytes receiverPubKey = 1;
+    uint64 value = 2;
+}
+
 service Transactions {
     rpc ReceiveTransaction(Transaction) returns (Empty) {} 
-    rpc SendTransaction(Transaction) returns (Empty) {}
+    rpc SendTransaction(TransactionRequest) returns (Empty) {}
 }
 
 service Blocks {

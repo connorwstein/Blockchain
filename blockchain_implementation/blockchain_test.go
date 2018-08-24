@@ -21,7 +21,7 @@ func TestBalanceDecrement(t *testing.T) {
     s := initServer()
     s.Wallet.createKey() 
     // Relax difficulty for this
-    target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
+    target, _ := hex.DecodeString(strings.Join([]string{"2", strings.Repeat("f", 19)}, ""))
     s.Blockchain.setTarget(target)
     mineBlocks(s, t, 2)
     // Fake receiver
@@ -30,7 +30,7 @@ func TestBalanceDecrement(t *testing.T) {
     // Generate the keypair based on the curve
     receiverKey, _ = ecdsa.GenerateKey(curve, rand.Reader)
     before := s.Blockchain.getBalance(s.Wallet.key)
-    req := pb.Transaction{Value: 10, ReceiverPubKey: getPubKeyBytes(receiverKey)}
+    req := pb.TransactionRequest{Value: BLOCK_REWARD, ReceiverPubKey: getPubKeyBytes(receiverKey)}
     // Should succeed because we have money
     _, err := s.SendTransaction(context.Background(), &req)
     if err != nil {
@@ -50,9 +50,9 @@ func TestBalanceDecrement(t *testing.T) {
     // Remember as we mine we get block rewards as well
     numBlocks := len(s.Blockchain.blocks)
     balance := s.Blockchain.getBalance(s.Wallet.key)
-    if int(balance) != (BLOCK_REWARD*(numBlocks - 1) - 10) {
+    if int(balance) != (BLOCK_REWARD*(numBlocks - 1) - BLOCK_REWARD) {
         t.Logf("Balance is %d should be %d", 
-                balance, (BLOCK_REWARD*(numBlocks - 1) - 10))
+                balance, (BLOCK_REWARD*(numBlocks - 1) - BLOCK_REWARD))
         t.Fail()
     }
 }
@@ -61,24 +61,24 @@ func TestBalanceDecrement(t *testing.T) {
 // so a UTXO must be partially spent with the remaining change 
 // created a new transaction back to ourselves
 func TestMakeChange(t *testing.T) {
-//     s := initServer()
-//     s.Wallet.createKey() 
-//     // Relax difficulty for this
-//     target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
-//     s.Blockchain.setTarget(target)
-//     mineBlocks(s, t, 2)
-//     // Fake receiver
-//     curve := elliptic.P256()
-//     receiverKey := new(ecdsa.PrivateKey)
-//     // Generate the keypair based on the curve
-//     receiverKey, _ = ecdsa.GenerateKey(curve, rand.Reader)
+    s := initServer()
+    s.Wallet.createKey() 
+    // Relax difficulty for this
+    target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
+    s.Blockchain.setTarget(target)
+    mineBlocks(s, t, 2)
+    // Fake receiver
+    curve := elliptic.P256()
+    receiverKey := new(ecdsa.PrivateKey)
+    // Generate the keypair based on the curve
+    receiverKey, _ = ecdsa.GenerateKey(curve, rand.Reader)
 //     before := s.Blockchain.getBalance(s.Wallet.key)
-//     req := pb.Transaction{Value: 8, ReceiverPubKey: getPubKeyBytes(receiverKey)}
-//     // Should succeed because we have money
-//     _, err := s.SendTransaction(context.Background(), &req)
-//     if err != nil {
-//         t.Fail()
-//     }
+    req := pb.TransactionRequest{Value: 8, ReceiverPubKey: getPubKeyBytes(receiverKey)}
+    // Should succeed because we have money
+    _, err := s.SendTransaction(context.Background(), &req)
+    if err != nil {
+        t.Fail()
+    }
 }
 
 // How to test a fork situation:

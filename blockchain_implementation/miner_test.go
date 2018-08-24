@@ -10,8 +10,8 @@ import (
 //     "crypto/elliptic"
     "time"
     "errors"
-    "strings"
-    "encoding/hex"
+//     "strings"
+//     "encoding/hex"
 )
 
 // Returns error if the block was not mined
@@ -60,19 +60,19 @@ func mineBlocks(s *Server, t *testing.T, minChainLength int) {
 }
 
 // Check balance updates upon mining
-func TestMineBlock(t *testing.T) {
-    s := initServer()
-    s.Wallet.createKey() 
-    // Relax difficulty for this
-    target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
-    s.Blockchain.setTarget(target)
-    mineBlocks(s, t, 3)
-    balance := int(s.getBalance(s.Wallet.key))
-    numBlocks := len(s.Blockchain.blocks)
-    if balance != (numBlocks - 1)*BLOCK_REWARD {
-        t.Logf("Balance is %d, should be %d", balance, (numBlocks - 1)*BLOCK_REWARD)
-        t.Fail()
-    }
-}
-
-
+// func TestMineBlock(t *testing.T) {
+//     s := initServer()
+//     s.Wallet.createKey() 
+//     // Relax difficulty for this
+//     target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
+//     s.Blockchain.setTarget(target)
+//     mineBlocks(s, t, 3)
+//     balance := int(s.getBalance(s.Wallet.key))
+//     numBlocks := len(s.Blockchain.blocks)
+//     if balance != (numBlocks - 1)*BLOCK_REWARD {
+//         t.Logf("Balance is %d, should be %d", balance, (numBlocks - 1)*BLOCK_REWARD)
+//         t.Fail()
+//     }
+// }
+// 
+// 
