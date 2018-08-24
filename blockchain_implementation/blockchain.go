@@ -116,6 +116,7 @@ func getSenderIP(ctx context.Context) string {
 func (s *Server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, error) {
     var reply pb.Empty
     senderIP := getSenderIP(ctx)
+    fmt.Println("Receive block %s", getBlockString(in))
     // Add this block to our chain after verifying it. Since
     // the majority of the nodes are honest and doing this validation
     // miners are incentivized to be honest otherwise the block with their reward won't actually be included in the longest chain and is 

@@ -29,17 +29,17 @@ func TestVerifyTransaction(t *testing.T) {
     target, _ := hex.DecodeString(strings.Join([]string{"2", strings.Repeat("f", 19)}, ""))
     s.Blockchain.setTarget(target)
     mineBlocks(s, t, 2)
-    balance := s.Blockchain.getBalance(s.Wallet.key)
-    inputUTXO := s.Blockchain.getUTXOsToCoverTransaction(s.Wallet.key, BLOCK_REWARD)
-    t.Log(balance)
-    t.Log(s.Blockchain.txIndex)
+    balance := s.Blockchain.getBalance(&s.Wallet.key.PublicKey)
+    inputUTXOs := s.Blockchain.getUTXOsToCoverTransaction(s.Wallet.key, BLOCK_REWARD)
+//     t.Log(balance)
+//     t.Log(s.Blockchain.txIndex)
     // Spend a valid amount
     var vout []*pb.TXO
     var vin []*pb.TXI
     var txi pb.TXI
     var txo pb.TXO
-    txi.TxID = getTransactionHash(inputUTXO.transaction)
-    txi.Index = uint64(inputUTXO.index)
+    txi.TxID = getTransactionHash(inputUTXOs[0].transaction)
+    txi.Index = uint64(inputUTXOs[0].index)
     // Just send all of it back to our selves for simplicity
     txo.ReceiverPubKey = getPubKeyBytes(s.Wallet.key) 
     txo.Value = BLOCK_REWARD 
@@ -66,44 +66,13 @@ func TestVerifyTransaction(t *testing.T) {
     }
 }
 
-// func TestReceive(t *testing.T) {
-//     s := initServer()
-//     s.Wallet.createKey() 
-//     testVal := uint64(100)
-//     req := pb.TransactionRequest{ReceiverPubKey: getPubKeyBytes(s.Wallet.key), 
-//                           Value: testVal}
-//     _, err := s.ReceiveTransaction(context.Background(), &req)
-//     if err != nil {
-//         t.Errorf("HelloTest(%v) got unexpected error")
-//     }
-//     // Check that transaction is now in the memPool
-//     transHash := string(getTransactionHash(&req))
-//     if _, ok := s.MemPool.transactions[transHash]; !ok {
-//         t.Log("Did not find transaction in mempool")
-//         t.Fail()
-//     }
-//     // Make sure value is correct
-//     if s.MemPool.transactions[transHash].Value != testVal {
-//         t.Fail()
-//     }
-//     // Note balance should still be zero because no block has been mined
-//     if s.Blockchain.getBalance(s.Wallet.key) != 0 {
-//         t.Fail()
-//     }
-// }
-// 
-// // Reject a faulty transaction where someone claims to 
-// // send more than they actually have
-// func TestReceiveReject(t *testing.T) {
-// }
-// 
-// func TestSend(t *testing.T) {
-//     s := initServer()
-//     s.Wallet.createKey() 
-//     req := pb.TransactionRequest{Value: 100}
-//     // Should fail because we have no money
-//     _, err := s.SendTransaction(context.Background(), &req)
-//     if err == nil {
-//         t.Errorf("Send test should have failed, no UTXO can cover that transaction", err)
-//     }
-// }
+func TestSend(t *testing.T) {
+    s := initServer()
+    s.Wallet.createKey() 
+    req := pb.TransactionRequest{Value: 100}
+    // Should fail because we have no money
+    _, err := s.SendTransaction(context.Background(), &req)
+    if err == nil {
+        t.Errorf("Send test should have failed, no UTXO can cover that transaction", err)
+    }
+}

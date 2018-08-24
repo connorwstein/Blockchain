@@ -75,7 +75,7 @@ func (blockChain Blockchain) verifyTransaction(transaction *pb.Transaction) bool
     r.SetBytes(transaction.Signature[:32])
     s := new(big.Int)
     s.SetBytes(transaction.Signature[32:])
-    fmt.Println(r, s)
+//     fmt.Println(r, s)
     toVerify := ecdsa.PublicKey{Curve: elliptic.P256()}
     toVerify.X = new(big.Int)
     toVerify.Y = new(big.Int)
@@ -122,7 +122,7 @@ func (blockChain Blockchain) verifyTransaction(transaction *pb.Transaction) bool
             totalVoutValue += txo.Value 
         }
         if totalVoutValue != totalVinValue {
-            fmt.Printf("Invalid transaction: Vin value %d Vout value %d", totalVinValue, totalVoutValue)
+            fmt.Printf("\nInvalid transaction: Vin value %d Vout value %d\n", totalVinValue, totalVoutValue)
             return false
         }
     }
@@ -137,6 +137,7 @@ func getTXIString(tx *pb.TXI) string {
     buf.WriteString(hex.EncodeToString(tx.TxID[:]))
     buf.WriteString("\n  Index:")
     buf.WriteString(strconv.Itoa(int(tx.Index)))
+    buf.WriteString("\n")
     return buf.String()
 }
 
@@ -151,6 +152,7 @@ func getTXOString(tx *pb.TXO) string {
     buf.WriteString(strings.Join([]string{pubKey.X.String(), pubKey.Y.String()}, ""))
     buf.WriteString("\n  Amount:")
     buf.WriteString(strconv.Itoa(int(tx.Value)))
+    buf.WriteString("\n")
     return buf.String()
 }
 
@@ -192,26 +194,36 @@ func getTransactionHash(transaction *pb.Transaction) []byte {
     return sum[:]
 }
 
-// Note this is an honest node, need to find a way to test a malicious node
 func (s *Server) SendTransaction(ctx context.Context, in *pb.TransactionRequest) (*pb.Empty, error) {
     var reply pb.Empty
     if s.Wallet.key == nil {
         return &reply, errors.New("Need to make an account first") 
     }
-    // Find some UTXO we can use to cover the transaction
-    // If we cannot, then we have to reject the transactionk
-    inputUTXO := s.Blockchain.getUTXOsToCoverTransaction(s.Wallet.key, in.Value)
-    if inputUTXO == nil {
-        return &reply, errors.New(fmt.Sprintf("Not enough coin, balance is %d", s.Blockchain.getBalance(s.Wallet.key)))
+    if s.Blockchain.getBalance(&s.Wallet.key.PublicKey) < in.Value {
+        return &reply, errors.New(fmt.Sprintf("Not enough coin, balance is %d", s.Blockchain.getBalance(&s.Wallet.key.PublicKey)))
     }
-    // Reference to that unspent output being used in this transaction
-    // Just one input and output right now
+    // Find some UTXO we can use to cover the transaction
+    // We know we can cover the transaction based on our balance
+    inputUTXOs := s.Blockchain.getUTXOsToCoverTransaction(s.Wallet.key, in.Value)
+    // Add all input UTXOs 
     var trans pb.Transaction 
-    var input pb.TXI
-    input.TxID = getTransactionHash(inputUTXO.transaction)
-    input.Index = uint64(inputUTXO.index)
-    trans.Vin  = append(trans.Vin, &input) 
+    var change, curr uint64 
+    for _, utxo := range inputUTXOs {
+        var input pb.TXI
+        input.TxID = getTransactionHash(utxo.transaction)
+        input.Index = uint64(utxo.index)
+        trans.Vin  = append(trans.Vin, &input) 
+        curr += s.Blockchain.getValueUTXO(utxo)
+    }
+    change = curr - in.Value
     var output pb.TXO
+    var changeTrans pb.TXO
+    if change != 0 {
+        // Pay ourselves the change
+        changeTrans.Value = change
+        changeTrans.ReceiverPubKey = append(output.ReceiverPubKey, getPubKeyBytes(s.Wallet.key)...)
+        trans.Vout = append(trans.Vout, &changeTrans)
+    }
     output.ReceiverPubKey = append(output.ReceiverPubKey, in.ReceiverPubKey...) 
     output.Value = in.Value 
     trans.Vout = append(trans.Vout, &output)
@@ -267,6 +279,6 @@ func (s *Server) ReceiveTransaction(ctx context.Context, in *pb.Transaction) (*p
 
 func (s *Server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, error) {
     var balance pb.Balance
-    balance.Balance = s.Blockchain.getBalance(s.Wallet.key)
+    balance.Balance = s.Blockchain.getBalance(&s.Wallet.key.PublicKey)
     return &balance, nil
 }
