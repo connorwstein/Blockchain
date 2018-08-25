@@ -110,15 +110,13 @@ func TestMakeChange(t *testing.T) {
     }
 }
 
-// How to test a fork situation:
-// two blocks mined close to each other so some node receive
-// v1 for block X and some other nodes receive v2 for block X.
-// we need to store both, wait for an update then adjust accordingly
-func TestTemporaryFork(t *testing.T) {
-}
-
-// Receive some block that doesn't have a parent, put it in the orphan pool
-// until parent received, then add both parent and orphan to the chain and
-// remove the orphan from the chain
-func TestOrphanBlock(t *testing.T) {
+func TestMerkleRoot(t *testing.T) {
+    test := make([]*pb.Transaction, 0)
+    for i := 0; i < 3; i++ {
+        var t1 pb.Transaction
+        test = append(test, &t1)
+    }
+    t.Log(test)
+    root := getMerkleRoot(test)
+    t.Log(root)
 }

@@ -83,6 +83,7 @@ func mine(s *Server) {
         for _, transaction := range s.MemPool.transactions {
             newBlock.Transactions = append(newBlock.Transactions, transaction)
         } 
+        newBlock.Header.MerkleRoot = getMerkleRoot(newBlock.Transactions)
         // Blocks until mining is complete
         // Need a way to abort if a new block at the same number is received while mining
         result := mineBlock(s.Blockchain.target, &newBlock, s.stopMining) 

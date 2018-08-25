@@ -201,11 +201,6 @@ func (blockChain Blockchain) blockIsValid(target []byte, block *pb.Block) bool {
     return true
 }
 
-// Walk all the tips of the chains looking for the longest one
-func getLongestChain() *pb.Block {
-    return nil
-}
-
 func getBlockHash(block *pb.Block) []byte {
     buf := new(bytes.Buffer)
     buf.Write(block.Header.PrevBlockHash)
@@ -217,6 +212,29 @@ func getBlockHash(block *pb.Block) []byte {
     for _, trans := range block.Transactions {
 	    buf.Write(getTransactionHash(trans))
     }
+	sum := sha256.Sum256(buf.Bytes())
+    return sum[:]
+}
+
+// Note having the merkle root in the block header allows one to 
+// hash only the block header and obtain a unique hash for that whole block
+// because any transaction change in the block will alter the merkle root
+func getMerkleRoot(input []*pb.Transaction) []byte {
+    numTransactions := len(input)
+    if numTransactions == 1 {
+        return getTransactionHash(input[0]) 
+    }
+    if numTransactions % 2  != 0 {
+        // Odd number of transactions need to double the last input, 
+        // could only happen on the first recursive call
+        input = append(input, input[numTransactions - 1]) 
+        numTransactions += 1
+    } 
+    m1 := getMerkleRoot(input[:numTransactions/2]) 
+    m2 := getMerkleRoot(input[numTransactions/2:])
+    buf := new(bytes.Buffer)
+    buf.Write(m1)
+    buf.Write(m2)
 	sum := sha256.Sum256(buf.Bytes())
     return sum[:]
 }

@@ -3,10 +3,11 @@ package main
 import (
     "testing"
     pb "./protos"
-    "fmt"
     "golang.org/x/net/context"
     "time"
     "errors"
+    "strings"
+    "encoding/hex"
 )
 
 // Returns error if the block was not mined
@@ -28,8 +29,6 @@ func mineBlockHelper(s *Server, minChainLength int) error {
                 // if so we are done
                 if len(s.Blockchain.blocks) >= minChainLength {
                     mined = true
-                } else {
-                    fmt.Println("blocks ", len(s.Blockchain.blocks))
                 }
         }
     }
@@ -62,7 +61,7 @@ func TestMineBlock(t *testing.T) {
     target, _ := hex.DecodeString(strings.Join([]string{"e", strings.Repeat("f", 19)}, ""))
     s.Blockchain.setTarget(target)
     mineBlocks(s, t, 3)
-    balance := int(s.getBalance(s.Wallet.key))
+    balance := int(s.getBalance(&s.Wallet.key.PublicKey))
     numBlocks := len(s.Blockchain.blocks)
     if balance != (numBlocks - 1)*BLOCK_REWARD {
         t.Logf("Balance is %d, should be %d", balance, (numBlocks - 1)*BLOCK_REWARD)
