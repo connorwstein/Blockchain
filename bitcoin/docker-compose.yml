@@ -1,0 +1,74 @@
+#
+#   miner2 -- Alice -- bob
+#               |
+#             Connor
+#               |
+#             miner1
+version: '3.2'
+services:
+    alice:
+        build: .
+        container_name: alice
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/bitcoin
+        image: bitcoin_node
+        networks:
+            - testnet1
+            - testnet2
+            - testnet3
+    bob:
+        build: .
+        container_name: bob
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/bitcoin
+        image: bitcoin_node
+        networks:
+            - testnet2
+    connor:
+        build: .
+        container_name: connor
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/bitcoin
+        image: bitcoin_node
+        networks:
+            - testnet3
+            - testnet4
+    miner1:
+        build: .
+        container_name: miner1
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/bitcoin
+        image: bitcoin_node
+        networks:
+            - testnet4
+    miner2:
+        build: .
+        container_name: miner2
+        privileged: true
+        volumes:
+            - type: bind
+              source: .
+              target: /opt/bitcoin
+        image: bitcoin_node
+        networks:
+            - testnet1
+networks:
+  testnet1:
+    driver: bridge
+  testnet2:
+    driver: bridge
+  testnet3:
+    driver: bridge
+  testnet4:
+    driver: bridge

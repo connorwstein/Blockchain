@@ -1,0 +1,99 @@
+syntax = "proto3";
+package protos;
+
+message TXI {
+    // Transaction hash containing UTXO
+    bytes txID = 1; 
+    // Index within that transaction of UTXO 
+    uint64 index = 3; 
+}
+
+message TXO {
+    bytes receiverPubKey = 1;
+    uint64 value = 2;
+}
+
+message Transaction {
+    repeated TXI vin = 1;
+    repeated TXO vout = 3;
+    bytes signature = 4;
+    // Height is guaranteed to be unique per miner, in the real bitcoin network this
+    // goes in the coinbase script arbirary data section but in general this 
+    // resolves the issue of identical coinbase transactions for the same miner
+    // currently only used for coinbase transactions
+    uint64 height = 6;
+}
+
+message BlockHeader {
+    bytes prevBlockHash = 1;
+    // Used to check whether a transaction is in the block 
+    // in logarithmic time, AFAIK this is only used in SPV clients
+    // So they do not need to download the full blocks
+    bytes merkleRoot = 2;
+    uint64 timeStamp = 3; // seconds from epoch
+    uint32 difficultyTarget = 4;
+    uint32 nonce = 5; 
+    uint64 height = 6; 
+}
+
+message Block {
+    BlockHeader header = 1;
+    repeated Transaction transactions = 2;
+}
+
+message Empty {
+}
+
+message Hello {
+}
+
+message Ack {
+}
+
+message TransactionRequest {
+    bytes receiverPubKey = 1;
+    uint64 value = 2;
+}
+
+service Peering {
+    // Could add version exchange during peer connection
+    rpc Connect(Hello) returns (Ack) {}
+}
+
+service Transactions {
+    rpc ReceiveTransaction(Transaction) returns (Empty) {} 
+    rpc SendTransaction(TransactionRequest) returns (Empty) {}
+}
+
+service Blocks {
+    rpc ReceiveBlock(Block) returns (Empty) {}
+}
+
+service State {
+    // Could be a huge number of blocks and transactions
+    // lets use a stream
+    rpc GetTransactions(Empty) returns (stream Transaction) {}
+    rpc GetBlocks(Empty) returns (stream Block) {}
+}
+
+message Account {
+    string name = 1;
+} 
+message AccountCreated {
+    string address = 1;
+}
+
+message Balance {
+    uint64 balance = 1;
+}
+
+service Wallet {
+    rpc NewAccount(Account) returns (AccountCreated) {}
+    rpc GetBalance(Empty) returns (Balance) {}
+    rpc GetAddress(Empty) returns (AccountCreated) {}
+}
+
+service Miner {
+    rpc StartMining(Empty) returns (Empty) {}
+    rpc StopMining(Empty) returns (Empty) {}
+}
