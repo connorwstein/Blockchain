@@ -68,63 +68,66 @@ func signTransaction(transaction *pb.Transaction, key *ecdsa.PrivateKey) *pb.Tra
 // 2. The referenced UTXO exists and is not already spent 
 // 3. Vin == Vout (value wise)  
 func (blockChain Blockchain) verifyTransaction(transaction *pb.Transaction) bool {
-    if len(transaction.Signature) != 64 {
-        return false
-    }
-    r := new(big.Int)
-    r.SetBytes(transaction.Signature[:32])
-    s := new(big.Int)
-    s.SetBytes(transaction.Signature[32:])
-//     fmt.Println(r, s)
-    toVerify := ecdsa.PublicKey{Curve: elliptic.P256()}
-    toVerify.X = new(big.Int)
-    toVerify.Y = new(big.Int)
     if len(transaction.Vin) == 0 {
         // Coinbase transaction, only need to verify that the
-        // output receiver pub key matches the signature
-        // and the block reward is exact
-        if len(transaction.Vout) != 1 {
+        // block reward is exact, in theory someone could 
+        // put an address other than their own pubkey but 
+        // that wouldn't make a lot of sense 
+        if len(transaction.Vout) != 1 { 
             // should only be one output to the miner
             return false
         } 
         if transaction.Vout[0].Value != BLOCK_REWARD {
             return false
         }
-        toVerify.X.SetBytes(transaction.Vout[0].ReceiverPubKey[:32])
-        toVerify.Y.SetBytes(transaction.Vout[0].ReceiverPubKey[32:])
-         
         fmt.Println("coin base transaction")
-    } else {
-        senderPubKeyBytes := blockChain.getSenderPubKey(transaction.Vin[0])
-        toVerify.X.SetBytes(senderPubKeyBytes[:32])
-        toVerify.Y.SetBytes(senderPubKeyBytes[32:])
-        sendersUTXOs := blockChain.getUTXOs(&toVerify)
-        totalVinValue := uint64(0)
-        // Each one of Vin should be in the set of that senders UTXOs
-        for _, txi := range transaction.Vin {
-            idx := blockChain.txIndex[string(txi.TxID)]
-            value := blockChain.blocks[idx.blockHash].Transactions[idx.index].Vout[txi.Index].Value
-            totalVinValue += value
-            found := false
-            for _, utxo := range sendersUTXOs {
-                if bytes.Equal(txi.TxID, getTransactionHash(utxo.transaction)) && txi.Index == uint64(utxo.index) {
-                    found = true
-                }
-            }
-            if !found {
-                fmt.Println("Referencing an invalid UTXO")
-                return false
+        return true
+    } 
+    toVerify := ecdsa.PublicKey{Curve: elliptic.P256()}
+    toVerify.X = new(big.Int)
+    toVerify.Y = new(big.Int)
+    if len(transaction.Signature) != 64 {
+        fmt.Println("Incorrect signature length is %d should be %d", len(transaction.Signature), 64)
+        return false
+    }
+    r := new(big.Int)
+    r.SetBytes(transaction.Signature[:32])
+    s := new(big.Int)
+    s.SetBytes(transaction.Signature[32:])
+    fmt.Println("to verify: %s", getTXIString(transaction.Vin[0]))
+    // Lookup the referenced transaction to get that pub key
+    trans := blockChain.getTransaction(transaction.Vin[0].TxID)
+    if trans == nil {
+        return false
+    }
+    toVerify.X.SetBytes(trans.Vout[transaction.Vin[0].Index].ReceiverPubKey[:32])
+    toVerify.Y.SetBytes(trans.Vout[transaction.Vin[0].Index].ReceiverPubKey[32:])
+    sendersUTXOs := blockChain.getUTXOs(&toVerify)
+    totalVinValue := uint64(0)
+    // Each one of Vin should be in the set of that senders UTXOs
+    for _, txi := range transaction.Vin {
+        idx := blockChain.txIndex[string(txi.TxID)]
+        value := blockChain.blocks[idx.blockHash].Transactions[idx.index].Vout[txi.Index].Value
+        totalVinValue += value
+        found := false
+        for _, utxo := range sendersUTXOs {
+            if bytes.Equal(txi.TxID, getTransactionHash(utxo.transaction)) && txi.Index == uint64(utxo.index) {
+                found = true
             }
         }
-        // Check whether vout value matches
-        totalVoutValue := uint64(0)
-        for _, txo := range transaction.Vout {
-            totalVoutValue += txo.Value 
-        }
-        if totalVoutValue != totalVinValue {
-            fmt.Printf("\nInvalid transaction: Vin value %d Vout value %d\n", totalVinValue, totalVoutValue)
+        if !found {
+            fmt.Println("Referencing an invalid UTXO")
             return false
         }
+    }
+    // Check whether vout value matches
+    totalVoutValue := uint64(0)
+    for _, txo := range transaction.Vout {
+        totalVoutValue += txo.Value 
+    }
+    if totalVoutValue != totalVinValue {
+        fmt.Printf("\nInvalid transaction: Vin value %d Vout value %d\n", totalVinValue, totalVoutValue)
+        return false
     }
     verifystatus := ecdsa.Verify(&toVerify, getTransactionHash(transaction), r, s)
     fmt.Println("Verify signature: ", verifystatus)

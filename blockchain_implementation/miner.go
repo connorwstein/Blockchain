@@ -95,7 +95,11 @@ func (blockChain Blockchain) getBalance(key *ecdsa.PublicKey) uint64 {
 }
 
 func (blockChain Blockchain) getTransaction(hash []byte) *pb.Transaction {
-    idx := blockChain.txIndex[string(hash)] 
+    idx, ok := blockChain.txIndex[string(hash)] 
+    if !ok {
+        fmt.Println("Transaction not indexed")
+        return nil
+    }
     return blockChain.blocks[idx.blockHash].Transactions[idx.index]
 }
 
@@ -104,6 +108,7 @@ func (blockChain Blockchain) getValueUTXO(utxo *UTXO) uint64 {
     block := blockChain.blocks[txIndex.blockHash]
     return block.Transactions[txIndex.index].Vout[utxo.index].Value
 }
+
 
 func (blockChain Blockchain) getTXO(utxo *UTXO) *pb.TXO {
     txIndex := blockChain.txIndex[string(getTransactionHash(utxo.transaction))]
