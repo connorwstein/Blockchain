@@ -1,37 +1,40 @@
-Simplified bitcoin implementation using a network of containers. 
+Simplified bitcoin implementation using a network of containers and protobuf/grpc. Supports arbitrary transaction
+size with the UTXO model and ECC signing of transactions. 
 
-######Steps to use
+###### Steps to use
 ~~~
 brew install jq
 docker build -t bitcoin_node
 docker-compose up
 ~~~
-// Save all the ips of each container to a file, the real bootstrapping is not implemented
+// Save all the ips of each container to a file
 ~~~
 ./get_ips.sh
 cat networks.txt 
 ~~~
 
-// Start the "bitcoind" on each node
+// Start "bitcoin" on each node (from different shells)
 ~~~
 docker-exec -it miner2 bash
-./build.sh && ./bitcoind
+./build.sh
+./bitcoin &> /tmp/log &
 docker-exec -it alice bash
-./build.sh && ./bitcoind
+./bitcoin &> /tmp/log &
 docker-exec -it bob bash
-./build.sh && ./bitcoind
+./bitcoin &> /tmp/log &
 docker-exec -it connor bash
-./build.sh && ./bitcoind
+./bitcoin &> /tmp/log &
 docker-exec -it miner1 bash
-./build.sh && ./bitcoind
+./bitcoin &> /tmp/log &
 ~~~
-// Now they should peer with whoever they can forming a network like:
-
-   miner2 -- Alice -- bob
-               |
-             Connor
-               |
-             miner1
+// Now they should peer with whoever they are actually connected to, forming a network:
+```
+   miner2 -- Alice -- bob 
+               | 
+            Connor 
+               | 
+            miner1 
+```
 
 // Now on any node you can run the following commands
 ~~~
@@ -65,4 +68,4 @@ go run client/client.go send -dest=<address> -amount=<amount> // Create a transa
 ###### Miners
 - A full node + creation of new blocks
 - Aggregate transactions from the mempool, attempting to mine for mining rewards
-- If successful in mining a block, update the mempool and broadcast the new block
+- If successful in mining a block, update the mempool and broadcast the new block.
