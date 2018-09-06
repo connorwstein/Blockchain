@@ -28,6 +28,7 @@ func (n Node) String() string {
 type MPT struct {
 	db map[string]Node // key is a hash
 	rootHash string	
+    length int
 }
 
 func (mpt *MPT) initMPT() {
@@ -73,9 +74,13 @@ func (mpt *MPT) updateHelper(nodeHash string, path string, pathIndex int, value 
 	// insert the node
 	hashNew := getHash(newNode)
 	mpt.db[hashNew] = newNode
-    if len(mpt.db) == 1 {
+    mpt.length++
+    if mpt.length == len(path) + 1 {
+        // very first time creating the rootHash
         mpt.rootHash = hashNew
-    }
+    } else if nodeHash == mpt.rootHash {
+        mpt.rootHash = hashNew
+    } 
 	log.Printf("Adding node %v at hash %v\n", hashNew, newNode)
 	return hashNew 
 }
@@ -101,19 +106,26 @@ func (mpt MPT) get(key string) string {
 	// (null meaning no such item)
 	// leaves are denoted by an empty path
 	keyString := getHexString([]byte(key))
-	result := ""
+// 	result := ""
+    log.Println(mpt)
 	currentNode := mpt.db[mpt.rootHash]
-	for _, c := range keyString {
+	for i, c := range keyString {
 		// Should be a hash here
 		nextNodeHash := currentNode.path[getIndex(string(c))]
-		if nextNodeHash == "" {
-			// we have hit the end
-			result = currentNode.value 
-			break
+        log.Printf("Root hash %v %v next node hash %v value %v char %d", mpt.rootHash, mpt.db[mpt.rootHash], nextNodeHash, mpt.db[nextNodeHash].value, getIndex(string(c)))
+		if nextNodeHash == "" && i != (len(keyString) - 1) {
+			// we have hit the end early
+// 			result = currentNode.value 
+// 			break
+            return "" 
 		} 
+        if i == len(keyString) - 1 {
+            log.Printf("value %v", mpt.db[nextNodeHash].value)
+            return mpt.db[nextNodeHash].value
+        }
 		currentNode = mpt.db[nextNodeHash]
 	}
-	return result
+	return currentNode.value 
 }
 
 func getHash(node Node) string {
