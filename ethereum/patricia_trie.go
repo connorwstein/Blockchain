@@ -3,9 +3,9 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+    "fmt"
 	"bytes"
-// 	"strconv"
+    "log"
 	"strings"
 )
 
@@ -32,13 +32,18 @@ type MPT struct {
 
 func (mpt *MPT) initMPT() {
 	mpt.db = make(map[string]Node)
-	rootNode := Node{}
-	rootHash := getHash(rootNode)
-	mpt.db[rootHash] = rootNode
-	mpt.rootHash = rootHash
 }
 
-func (mpt *MPT) insertHelper(nodeHash string, path string, pathIndex int, value string) string {
+// Given a char return the associated index in path
+// i.e. 'c' --> 0x0c --> 12
+func getIndex(char string) int {
+	// this is string representing a hexademical char
+	indexBytes, _ := hex.DecodeString(strings.Join([]string{"0", char}, ""))
+	index := int(indexBytes[0])
+	return index	
+}
+
+func (mpt *MPT) updateHelper(nodeHash string, path string, pathIndex int, value string) string {
 	var newNode Node
 	if pathIndex == len(path) {
 		// If path is empty we have found the node
@@ -46,7 +51,7 @@ func (mpt *MPT) insertHelper(nodeHash string, path string, pathIndex int, value 
 		node, ok := mpt.db[nodeHash]
 		if ok {
 			// Node already here just update value 
-			fmt.Printf("updating node from %s to %s\n", node.value, value)
+			log.Printf("updating node from %s to %s\n", node.value, value)
 			newNode = node 
 			newNode.value = value
 		} else {
@@ -54,43 +59,61 @@ func (mpt *MPT) insertHelper(nodeHash string, path string, pathIndex int, value 
 			newNode = Node{value: value}
 		}
 	} else {
-		// need to continue our descent, increment path index
-		index := path[pathIndex] // index in which we need to insert hash, 
-		// this is string representing a hexademical char
-		a, _ := hex.DecodeString(strings.Join([]string{"0", string(index)}, ""))
-		v := int(a[0])
-		fmt.Printf("index in path %d %d\n", index, v)
+		// Insert a new node (value) and its hash (key) 
+		index := getIndex(string(path[pathIndex]))
 		oldNode, ok := mpt.db[nodeHash]
 		if !ok {
 			newNode = Node{} 
 		} else {
 			newNode = oldNode
 		}
-		// hash to be inserted at newNode.path[index]
-		fmt.Printf("old node %v\n", oldNode.path[v])
-		nextHash := mpt.insertHelper(oldNode.path[v], path, pathIndex + 1, value)
-		newNode.path[v] = nextHash	
+		nextHash := mpt.updateHelper(oldNode.path[index], path, pathIndex + 1, value)
+		newNode.path[index] = nextHash	
 	}
 	// insert the node
 	hashNew := getHash(newNode)
 	mpt.db[hashNew] = newNode
-	fmt.Printf("Adding node %v at hash %v\n", hashNew, newNode)
+    if len(mpt.db) == 1 {
+        mpt.rootHash = hashNew
+    }
+	log.Printf("Adding node %v at hash %v\n", hashNew, newNode)
 	return hashNew 
 }
 
 func (mpt MPT) String() string {	
 	buf := bytes.NewBufferString("Dump tree: \n")
+	buf.Write([]byte(fmt.Sprintf("  Root hash %v\n", mpt.rootHash)))
 	for k, v := range mpt.db {
 		buf.Write([]byte(fmt.Sprintf("key: %v value: %v\n", k, v)))
 	}
 	return buf.String()
 }
 
-func (mpt *MPT) insert(key string, value string) {
+func (mpt *MPT) update(key string, value string) {
 	// Get the hex representation of the bytes in key (leave value as string for now)
-	fmt.Printf("Inserting %v\n", getHexString([]byte(key)))
-	hash := mpt.insertHelper(mpt.rootHash, getHexString([]byte(key)), 0, value)
-	fmt.Printf("Inserted key %s (%v) value %s at %v\n", key, getHexString([]byte(key)), value, hash) 
+	log.Printf("Inserting %v\n", getHexString([]byte(key)))
+	hash := mpt.updateHelper(mpt.rootHash, getHexString([]byte(key)), 0, value)
+	log.Printf("Inserted key %s (%v) value %s at %v\n", key, getHexString([]byte(key)), value, hash) 
+}
+
+func (mpt MPT) get(key string) string {	
+	// Start from the rootHash and keep walking	until we either run out of chars in the hex string or hit a null 
+	// (null meaning no such item)
+	// leaves are denoted by an empty path
+	keyString := getHexString([]byte(key))
+	result := ""
+	currentNode := mpt.db[mpt.rootHash]
+	for _, c := range keyString {
+		// Should be a hash here
+		nextNodeHash := currentNode.path[getIndex(string(c))]
+		if nextNodeHash == "" {
+			// we have hit the end
+			result = currentNode.value 
+			break
+		} 
+		currentNode = mpt.db[nextNodeHash]
+	}
+	return result
 }
 
 func getHash(node Node) string {

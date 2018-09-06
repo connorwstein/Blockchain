@@ -2,12 +2,15 @@ package main
 
 import (
     "testing"
-    "fmt"
 )
 
 func TestInsert(t *testing.T) {
     mpt := MPT{}  
     mpt.initMPT()
-    mpt.insert("hello", "world")
-    fmt.Println(mpt)
+    testKey, testValue := "hello", "world"
+    mpt.update(testKey, testValue)
+    res := mpt.get(testKey)
+    if res != testValue {
+        t.Fail()
+    }
 }
