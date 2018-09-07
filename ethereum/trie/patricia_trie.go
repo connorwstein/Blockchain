@@ -1,4 +1,6 @@
-package main
+// Non-optimized merkle patricia trie 
+// so actually more of just a merkle radix trie
+package trie 
 
 import (
 	"crypto/sha256"

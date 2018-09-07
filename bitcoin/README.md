@@ -38,7 +38,7 @@ docker-exec -it miner1 bash
 
 // Now on any node you can run the following commands
 ~~~
-go run client/client.go new -name=<name> // Create a wallet 
+go run client/client.go new -name=<name> // Create a wallet, do this first!
 go run client/client.go wallet -get=address // Get address of wallet
 go run client/client.go wallet -get=balance // Get balance of wallet
 go run client/client.go mine -action=<start|stop> // Start/stop mining 
