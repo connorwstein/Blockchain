@@ -1,28 +1,61 @@
 package evm
 
 import (
+	"bytes"
+	"encoding/hex"
 	"testing"
 )
 
 func TestStack(t *testing.T) {
 	// Test stack operations pop, mstore, mload, sload/store, msize, pushx, dupx, swapx
-
-	// push 0x10, push 0x20 then add
-	// check stack contains 0x10 + 0x20 = 0x30
-	evm := EVM{stack: &EVMStack{}}
-	evm.init()
-	instructions := evm.parse("6010602001")
-	t.Log(instructions)
-	evm.execute(instructions)
-	if evm.stack.stack[len(evm.stack.stack)-1] != 0x30 {
-		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x30)
-		t.Fail()
+	var stackTests = []struct {
+		inputBytes    string
+		expectedStack []byte
+		expectedMem   []byte
+	}{
+		{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x20)}), []byte{0x10, 0x20}, []byte{}},
+		{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(POP)}), []byte{}, []byte{}},
+		// MSTORE 0x10 in address 0x04
+		{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x03), byte(MSTORE)}),
+			[]byte{}, []byte{0x00, 0x00, 0x00, 0x10}},
 	}
 
-	// test
-	//     instructions := evm.parse("")
-	//     t.Log(instructions)
+	for _, stackTest := range stackTests {
+		evm := EVM{stack: &EVMStack{}, memory: &EVMMem{}}
+		evm.init()
+		instructions := evm.parse(stackTest.inputBytes)
+		t.Log(instructions)
+		evm.execute(instructions)
+		if !bytes.Equal(evm.stack.stack, stackTest.expectedStack) {
+			t.Logf("Expected %v on stack got %v", stackTest.expectedStack, evm.stack.stack)
+			t.Fail()
+		}
+		t.Log(evm.memory)
+		if !bytes.Equal(evm.memory.mem, stackTest.expectedMem) {
+			t.Logf("Expected %v in memory got %v", stackTest.expectedMem, evm.memory)
+			t.Fail()
+		}
+	}
+	// 	// push 0x10, push 0x20 then add
+	// 	// check stack contains 0x10 + 0x20 = 0x30
+	// 	evm := EVM{stack: &EVMStack{}}
+	// 	evm.init()
+	// 	instructions := evm.parse("6010602001")
+	// 	t.Log(instructions)
 	// 	evm.execute(instructions)
+	// 	if evm.stack.stack[len(evm.stack.stack)-1] != 0x30 {
+	// 		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x30)
+	// 		t.Fail()
+	// 	}
+	//
+	// 	instructions := evm.parse("6010602001")
+	// 	t.Log(instructions)
+	// 	evm.execute(instructions)
+	// 	if evm.stack.stack[len(evm.stack.stack)-1] != 0x30 {
+	// 		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x30)
+	// 		t.Fail()
+	// 	}
+
 }
 
 func TestProcessFlow(t *testing.T) {
@@ -37,6 +70,64 @@ func TestEnviron(t *testing.T) {
 	// gas, address, balance, origin, caller, callvalue, calldataload, calldatasize
 	// calldatacopy, codesize, codecopy, gasprice, extcodesize, extcodecopy
 	// returndatasize, returndatacopy
+
+	// Test callvalue - should return the amount of ether sent with this message
+	evm := EVM{stack: &EVMStack{}, memory: &EVMMem{}}
+	evm.init()
+	instructions := evm.parse("34")
+	t.Log(instructions)
+	evm.execute(instructions)
+	if evm.stack.stack[len(evm.stack.stack)-1] != 0x0a {
+		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x0a)
+		t.Fail()
+	}
+
+}
+
+func TestStorageContract(t *testing.T) {
+	// Instructions needed for this: callvalue, mstore, dup1, iszero, tag_1, jumpi, 0x0, reert, pop, dataSize, dup1, dataOffset, codecopy, return, stop
+
+	// EVM assembly:
+	//     /* "simple_storage.sol":25:72  contract SimpleStorage {... */
+	//   mstore(0x40, 0x80)
+	//   callvalue
+	//     /* "--CODEGEN--":8:17   */
+	//   dup1
+	//     /* "--CODEGEN--":5:7   */
+	//   iszero
+	//   tag_1
+	//   jumpi
+	//     /* "--CODEGEN--":30:31   */
+	//   0x0
+	//     /* "--CODEGEN--":27:28   */
+	//   dup1
+	//     /* "--CODEGEN--":20:32   */
+	//   revert
+	//     /* "--CODEGEN--":5:7   */
+	// tag_1:
+	//     /* "simple_storage.sol":25:72  contract SimpleStorage {... */
+	//   pop
+	//   dataSize(sub_0)
+	//   dup1
+	//   dataOffset(sub_0)
+	//   0x0
+	//   codecopy
+	//   0x0
+	//   return
+	// stop
+	//
+	// sub_0: assembly {
+	//         /* "simple_storage.sol":25:72  contract SimpleStorage {... */
+	//       mstore(0x40, 0x80)
+	//       0x0
+	//       dup1
+	//       revert
+	//
+	//     auxdata: 0xa165627a7a72305820039a32ae510dd9ca7064ace05e604144eef026b1be4d6e5456071d9a92c312cc0029
+	// }
+	//
+	// Binary of the runtime part:
+	// 6080604052600080fd00a165627a7a72305820039a32ae510dd9ca7064ace05e604144eef026b1be4d6e5456071d9a92c312cc0029
 }
 
 func TestRealContract(t *testing.T) {

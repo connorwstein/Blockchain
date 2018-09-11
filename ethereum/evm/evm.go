@@ -64,22 +64,22 @@ const (
 	RETURN       = 0xf3 //Halt execution and return output data
 	DELEGATECALL        //Message-call into this account with an alternative account’s code, but persisting the current values for sender and value
 	STATICCALL          //Static message-call into an account
-	REVERT              //Halt execution reverting state changes but returning data and remaining gas
+	REVERT       = 0xfd //Halt execution reverting state changes but returning data and remaining gas
 	INVALID             //The designated invalid instruction
 	SELFDESTRUCT        //Halt execution and register account for deletion
 
 	// Logic
-	LT     //Less-than comparison
-	GT     //Greater-than comparison
-	SLT    //Signed less-than comparison
-	SGT    //Signed greater-than comparison
-	EQ     //Equality comparison
-	ISZERO //Simple not operator
-	AND    //Bitwise AND operation
-	OR     //Bitwise OR operation
-	XOR    //Bitwise XOR operation
-	NOT    //Bitwise NOT operation
-	BYTE   //Retrieve a single byte from a full-width 256 bit word
+	LT            //Less-than comparison
+	GT            //Greater-than comparison
+	SLT           //Signed less-than comparison
+	SGT           //Signed greater-than comparison
+	EQ            //Equality comparison
+	ISZERO = 0x15 //Simple not operator
+	AND           //Bitwise AND operation
+	OR            //Bitwise OR operation
+	XOR           //Bitwise XOR operation
+	NOT           //Bitwise NOT operation
+	BYTE          //Retrieve a single byte from a full-width 256 bit word
 
 	// Environment
 	GAS            = 0x5a //Get the amount of available gas (after the reduction for this instruction)
@@ -87,12 +87,12 @@ const (
 	BALANCE               //Get the account balance of any given account
 	ORIGIN                //Get the address of the EOA that initiated this EVM execution
 	CALLER                //Get the address of the caller immediately responsible for this execution
-	CALLVALUE             //Get the ether amount deposited by the caller responsible for this execution
+	CALLVALUE      = 0x34 //Get the ether amount deposited by the caller responsible for this execution
 	CALLDATALOAD          //Get the input data sent by the caller responsible for this execution
-	CALLDATASIZE          //Get the size of the input data
+	CALLDATASIZE   = 0x36 //Get the size of the input data
 	CALLDATACOPY          //Copy the input data to memory
 	CODESIZE              //Get the size of code running in the current environment
-	CODECOPY              //Copy the code running in the current environment to memory
+	CODECOPY       = 0x39 //Copy the code running in the current environment to memory
 	GASPRICE              //Get the gas price specified by the originating transaction
 	EXTCODESIZE           //Get the size of any account's code
 	EXTCODECOPY           //Copy any account’s code to memory
@@ -119,10 +119,6 @@ type OpCode struct {
 
 type EVMStack struct {
 	stack []byte // should actually be 32 byte i.e. word size 256 bit values, max size 1024
-	// This memory just grows as needed
-	storage map[byte]byte // persistent key-value mappings sstore/ssload
-	// Sort of like registers:
-	memory []byte // mstore/mload, freshly cleared per message call, expanded when accessing a previously untouched word
 }
 
 func (s *EVMStack) init() {
@@ -144,16 +140,108 @@ func (s *EVMStack) pop() (byte, error) {
 	return res, nil
 }
 
+type EVMMem struct {
+	mem []byte
+}
+
+func (m *EVMMem) init() {
+	m.mem = make([]byte, 0)
+}
+
+func (m *EVMMem) grow(desiredSize int) {
+	if desiredSize < len(m.mem) {
+		return
+	}
+	m.mem = append(m.mem, make([]byte, desiredSize-len(m.mem))...)
+}
+
 type EVM struct {
-	stack   *EVMStack
+	stack *EVMStack
+	// This memory just grows as needed
+	storage map[byte]byte // persistent key-value mappings sstore/ssload
+	// Sort of like registers:
+	memory  *EVMMem // mstore/mload, freshly cleared per message call, expanded when accessing a previously untouched word
 	opCodes map[byte]OpCode
 }
 
 func (evm *EVM) init() {
 	evm.stack.init()
+	evm.memory.init()
 	evm.opCodes = make(map[byte]OpCode)
 	evm.opCodes[PUSH1] = OpCode{PUSH1, 1, 3, push1}
 	evm.opCodes[ADD] = OpCode{ADD, 0, 3, add}
+	evm.opCodes[CALLVALUE] = OpCode{CALLVALUE, 0, 2, callValue}
+	evm.opCodes[MSTORE] = OpCode{MSTORE, 0, 3, mstore}
+	evm.opCodes[DUP1] = OpCode{DUP1, 0, 3, dup1}
+	evm.opCodes[ISZERO] = OpCode{ISZERO, 0, 3, iszero}
+	evm.opCodes[JUMPI] = OpCode{JUMPI, 0, 10, jumpi}
+	evm.opCodes[REVERT] = OpCode{REVERT, 0, 0, revert}
+	evm.opCodes[POP] = OpCode{CALLVALUE, 0, 2, pop}
+	evm.opCodes[CALLDATASIZE] = OpCode{CALLVALUE, 0, 2, callDataSize}
+	// 	evm.opCodes[DATAOFFSET] = OpCode{CALLVALUE, 0, 2, callValue} seems to be a mystery
+	evm.opCodes[CODECOPY] = OpCode{CODECOPY, 0, 3, codeCopy}
+	evm.opCodes[RETURN] = OpCode{RETURN, 0, 0, returnF}
+	evm.opCodes[STOP] = OpCode{STOP, 0, 0, stop}
+}
+
+func stop(evm *EVM, args []byte) {
+}
+func returnF(evm *EVM, args []byte) {
+}
+func codeCopy(evm *EVM, args []byte) {
+}
+
+func mstore(evm *EVM, args []byte) {
+	// pop two values on the stack, first one is the address of where we store stuff in memory
+	// second is the actual value we put in there
+	address, err1 := evm.stack.pop()
+	val, err2 := evm.stack.pop()
+	if err1 != nil || err2 != nil {
+		log.Printf("Error in execution, mstore invalid")
+	}
+	log.Printf("MSTORE value %v in %v", val, address)
+	// check if the address is available, grow to that address if needed
+	evm.memory.grow(int(address) + 1)
+	evm.memory.mem[address] = val
+}
+func dup1(evm *EVM, args []byte) {
+}
+func iszero(evm *EVM, args []byte) {
+}
+func jumpi(evm *EVM, args []byte) {
+}
+func revert(evm *EVM, args []byte) {
+}
+func pop(evm *EVM, args []byte) {
+	_, err := evm.stack.pop()
+	if err != nil {
+		log.Print("tried to pop off empty stack")
+	}
+}
+func callDataSize(evm *EVM, args []byte) {
+}
+
+func push1(evm *EVM, args []byte) {
+	log.Print("Pushing onto the stack")
+	evm.stack.push(args[0])
+}
+
+func add(evm *EVM, args []byte) {
+	// Pop two items from the stack, add them and push the result on the stack
+	val1, err1 := evm.stack.pop()
+	val2, err2 := evm.stack.pop()
+	if err1 != nil || err2 != nil {
+		log.Printf("Error in execution invalid evm program")
+	}
+	evm.stack.push(val1 + val2)
+}
+
+func callValue(evm *EVM, args []byte) {
+	// For now just hardcode, future could actually take in a message arguments
+	// from somewhere
+	// Push onto the stack the amount of ether sent with message call which initiated this execution
+	etherSent := byte(0x0a)
+	evm.stack.push(etherSent)
 }
 
 func (evm EVM) parse(input string) []byte {
@@ -171,21 +259,6 @@ func (evm EVM) parse(input string) []byte {
 		instructions[i/2] = tmp[0]
 	}
 	return instructions
-}
-
-func push1(evm *EVM, args []byte) {
-	log.Print("Pushing onto the stack")
-	evm.stack.push(args[0])
-}
-
-func add(evm *EVM, args []byte) {
-	// Pop two items from the stack, add them and push the result on the stack
-	val1, err1 := evm.stack.pop()
-	val2, err2 := evm.stack.pop()
-	if err1 != nil || err2 != nil {
-		log.Printf("Error in execution invalid evm program")
-	}
-	evm.stack.push(val1 + val2)
 }
 
 // Process an op, return new index in the byte code
