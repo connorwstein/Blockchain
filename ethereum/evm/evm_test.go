@@ -6,86 +6,124 @@ import (
 	"testing"
 )
 
-func TestStack(t *testing.T) {
-	// Test stack operations pop, mstore, mload, sload/store, msize, pushx, dupx, swapx
-	var stackTests = []struct {
-		inputBytes    string
-		expectedStack []byte
-		expectedMem   []byte
-	}{
-		{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x20)}), []byte{0x10, 0x20}, []byte{}},
-		{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(POP)}), []byte{}, []byte{}},
-		// MSTORE 0x10 in address 0x04
-		{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x03), byte(MSTORE)}),
-			[]byte{}, []byte{0x00, 0x00, 0x00, 0x10}},
-	}
+type EVMTest struct {
+	inputBytes    string
+	expectedStack []Word
+	expectedMem   []Word
+}
 
-	for _, stackTest := range stackTests {
+func testRunner(t *testing.T, tests []EVMTest) {
+	for _, tt := range tests {
 		evm := EVM{stack: &EVMStack{}, memory: &EVMMem{}}
 		evm.init()
-		instructions := evm.parse(stackTest.inputBytes)
+		instructions := evm.parse(tt.inputBytes)
 		t.Log(instructions)
 		evm.execute(instructions)
-		if !bytes.Equal(evm.stack.stack, stackTest.expectedStack) {
-			t.Logf("Expected %v on stack got %v", stackTest.expectedStack, evm.stack.stack)
+		// evm.stack.stack will be a []Word for each word 
+		if len(evm.stack.stack) != len(tt.expectedStack) {
+			t.Logf("Expected %v stack length got %v", len(tt.expectedStack), len(evm.stack.stack))
 			t.Fail()
-		}
-		t.Log(evm.memory)
-		if !bytes.Equal(evm.memory.mem, stackTest.expectedMem) {
-			t.Logf("Expected %v in memory got %v", stackTest.expectedMem, evm.memory)
-			t.Fail()
-		}
+		} 
+		for i := range evm.stack.stack {
+			if !bytes.Equal(evm.stack.stack[i][:], tt.expectedStack[i][:]) {
+				t.Logf("Expected %v on stack got %v", tt.expectedStack[i], evm.stack.stack[i])
+				t.Fail()
+			}
+		}		
+// 		t.Log(evm.memory)
+// 		if !bytes.Equal(evm.memory.mem, tt.expectedMem) {
+// 			t.Logf("Expected %v in memory got %v", tt.expectedMem, evm.memory)
+// 			t.Fail()
+// 		}
 	}
-	// 	// push 0x10, push 0x20 then add
-	// 	// check stack contains 0x10 + 0x20 = 0x30
-	// 	evm := EVM{stack: &EVMStack{}}
-	// 	evm.init()
-	// 	instructions := evm.parse("6010602001")
-	// 	t.Log(instructions)
-	// 	evm.execute(instructions)
-	// 	if evm.stack.stack[len(evm.stack.stack)-1] != 0x30 {
-	// 		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x30)
-	// 		t.Fail()
-	// 	}
-	//
-	// 	instructions := evm.parse("6010602001")
-	// 	t.Log(instructions)
-	// 	evm.execute(instructions)
-	// 	if evm.stack.stack[len(evm.stack.stack)-1] != 0x30 {
-	// 		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x30)
-	// 		t.Fail()
-	// 	}
-
 }
 
-func TestProcessFlow(t *testing.T) {
-	// Stop, jump, jumpi, pc, jumpdest
+func paddWord(input byte) Word {
+	var res Word
+	res[31] = input
+	return res
 }
 
-func TestLogical(t *testing.T) {
-	// LT, GT, SLT, SGT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE
+func TestStack(t *testing.T) {
+	// Test stack operations pop, mstore, mload, sload/store, msize, pushx, dupx, swapx
+	var stackTests = []EVMTest{
+		// Push 
+		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x20)}), 
+				[]Word{paddWord(0x10), paddWord(0x20)}, []Word{}}}
+		// Pop
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(POP)}), 
+// 				[]byte{}, []byte{}},
+// 		// MSTORE 0x10 in address 0x04
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x03), byte(MSTORE)}),
+// 			[]byte{}, []byte{0x00, 0x00, 0x00, 0x10}},
+// 		// Mload 
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(PUSH1), byte(0x01), byte(MSTORE),
+// 								   byte(PUSH1), byte(0x01), byte(MLOAD)}),
+// 			[]byte{0x10}, []byte{0x00, 0x10}},
+// 		// Add
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x01), byte(PUSH1), byte(0x02), byte(ADD)}),
+// 			[]byte{0x03}, []byte{}},
+// 		// Dup1 
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x01), byte(DUP1)}),
+// 			[]byte{0x01, 0x01}, []byte{}}}
+	testRunner(t, stackTests)
 }
 
-func TestEnviron(t *testing.T) {
-	// gas, address, balance, origin, caller, callvalue, calldataload, calldatasize
-	// calldatacopy, codesize, codecopy, gasprice, extcodesize, extcodecopy
-	// returndatasize, returndatacopy
-
-	// Test callvalue - should return the amount of ether sent with this message
-	evm := EVM{stack: &EVMStack{}, memory: &EVMMem{}}
-	evm.init()
-	instructions := evm.parse("34")
-	t.Log(instructions)
-	evm.execute(instructions)
-	if evm.stack.stack[len(evm.stack.stack)-1] != 0x0a {
-		t.Logf("Got %v on the stack, expecting %v", evm.stack.stack[len(evm.stack.stack)-1], 0x0a)
-		t.Fail()
-	}
-
+// func TestProcessFlow(t *testing.T) {
+// 	// Stop, jump, jumpi, pc, jumpdest
+// 	var logicalTests = []EVMTest{
+// 		// jumpi test - jump to a later part of the code which contains a stack push
+// 		// make sure the instructions in between are skipped
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x01), byte(PUSH1), byte(0x09), // jump to push 3 
+// 									byte(JUMPI), byte(PUSH1), byte(0x01), byte(PUSH1), 
+// 									byte(0x02), byte(PUSH1), byte(0x03)}), 
+// 				[]byte{0x03}, []byte{}},
+// 		// stop test - should break out early and not execute the last push
+// 		EVMTest{hex.EncodeToString([]byte{byte(STOP), byte(PUSH1), byte(0x01)}),
+// 				[]byte{}, []byte{}}}
+// 	testRunner(t, logicalTests)
+// }
+// 
+// func TestLogical(t *testing.T) {
+// 	// LT, GT, SLT, SGT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE
+// 	var logicalTests = []EVMTest{
+// 		// iszero(0x10) --> push 0 on stack
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x10), byte(ISZERO)}), 
+// 				[]byte{0x00}, []byte{}},
+// 		// iszero(0x00) --> push 1 on stack
+// 		EVMTest{hex.EncodeToString([]byte{byte(PUSH1), byte(0x00), byte(ISZERO)}), 
+// 				[]byte{0x01}, []byte{}}}
+// 	testRunner(t, logicalTests)
+// }
+// 
+// func TestEnviron(t *testing.T) {
+// 	// gas, address, balance, origin, caller, callvalue, calldataload, calldatasize
+// 	// calldatacopy, codesize, codecopy, gasprice, extcodesize, extcodecopy
+// 	// returndatasize, returndatacopy
+// 
+// 	// Hardcode the callvalue (input ether), call data etc.
+// 	var environTests = []EVMTest{
+// 		EVMTest{hex.EncodeToString([]byte{byte(CALLVALUE)}), 
+// 				[]byte{MSG_CALLVALUE}, []byte{}}, 
+// 		EVMTest{hex.EncodeToString([]byte{byte(CALLDATALOAD)}), 
+// 				[]byte{MSG_DATA}, []byte{}}} // msg_data should be the first 32 bytes of calldata
+// 	testRunner(t, environTests)
+// }
+// 
+func TestFunctionCall(t *testing.T) {
+	// Say the input was
+	// to do a simple function call like in simple_storage get 
+	// we need push, mstore, push1, calldatasize, lt, jumpi, calldataload
+	// push29, swap1, div, push4, and, dup1, eq, revert, mload
+	// dup2, dup3, swap2, sub, return, log1, push6, sha3, push15, codecopy
+	// dup9, swap11
+	return
 }
 
 func TestStorageContract(t *testing.T) {
-	// Instructions needed for this: callvalue, mstore, dup1, iszero, tag_1, jumpi, 0x0, reert, pop, dataSize, dup1, dataOffset, codecopy, return, stop
+
+	// Instructions needed for this: callvalue, mstore, dup1, iszero, 
+	// jumpi, 0x0, revert, pop, dataSize, dup1, dataOffset, codecopy, return, stop
 
 	// EVM assembly:
 	//     /* "simple_storage.sol":25:72  contract SimpleStorage {... */
@@ -127,7 +165,10 @@ func TestStorageContract(t *testing.T) {
 	// }
 	//
 	// Binary of the runtime part:
-	// 6080604052600080fd00a165627a7a72305820039a32ae510dd9ca7064ace05e604144eef026b1be4d6e5456071d9a92c312cc0029
+// 	push 80 push 40 mstore callvalue iszero push 0x0f jumpi 
+// 60 80 60 40 52 34 80 15 60 0f 57 600080fd5b50603580601d6000396000f3006080604052600080fd00a165627a7a72305820039a32ae510dd9ca7064ace05e604144eef026b1be4d6e5456071d9a92c312cc0029
+	//push 80 push 40 mstore push 00 dup1 
+	// 60 80 60 40 52 60 00 80 fd 00 a1 65 62 7a 7a 72 30 58 20 03 9a 32 ae510dd9ca7064ace05e604144eef026b1be4d6e5456071d9a92c312cc0029
 }
 
 func TestRealContract(t *testing.T) {
