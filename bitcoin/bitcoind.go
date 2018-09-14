@@ -102,7 +102,7 @@ func getSenderIP(ctx context.Context) string {
 	switch senderAddr := peerIP.Addr.(type) {
 	case *net.TCPAddr:
 		// Expected case
-		fmt.Printf("Receive Transaction %v", senderAddr.IP.String())
+		fmt.Printf("Receive Transaction %v\n", senderAddr.IP.String())
 		result = senderAddr.IP.String()
 	default:
 		fmt.Println("Receive Transaction (no sender IP)")
@@ -114,7 +114,7 @@ func getSenderIP(ctx context.Context) string {
 func (s *Server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, error) {
 	var reply pb.Empty
 	senderIP := getSenderIP(ctx)
-	fmt.Println("Receive block %s", getBlockString(in))
+	fmt.Printf("Receive block %s\n", getBlockString(in))
 	// Add this block to our chain after verifying it. Since
 	// the majority of the nodes are honest and doing this validation
 	// miners are incentivized to be honest otherwise the block with their reward won't actually be included in the longest chain and is
@@ -133,16 +133,27 @@ func (s *Server) ReceiveBlock(ctx context.Context, in *pb.Block) (*pb.Empty, err
 	// If the block number the next block we were looking for update it
 	if int(in.Header.Height) == s.Blockchain.nextBlockNum {
 		s.Blockchain.nextBlockNum = int(in.Header.Height) + 1
+	} else {
+		// Otherwise something is wrong
+		fmt.Printf("Received out of order block %v\n",
+			getBlockString(in))
+		return &reply, nil
 	}
-	fmt.Println("Received valid new block adding to local chain\n",
+	fmt.Printf("Received valid new block adding to local chain %v\n",
 		getBlockString(in))
 	// Index all the transactions in this block
+	// And clear these from the mempool as they are now confirmed
 	for i := range in.Transactions {
 		s.Blockchain.txIndex[string(getTransactionHash(in.Transactions[i]))] = TxIndex{blockHash: blockHash,
 			index: i}
+		delete(s.MemPool.transactions, string(getTransactionHash(in.Transactions[i])))
 	}
 	s.Blockchain.blocks[blockHash] = in
 	s.Blockchain.tipsOfChains[0] = in
+	// Now the length of our blockchain should be s.Blockchian.nextBlockNum
+	if s.Blockchain.nextBlockNum != (len(s.Blockchain.blocks) + 1) {
+		fmt.Printf("Something went wrong adding block %v\n", in)	
+	}
 	// Forward this new block along
 	for _, myPeer := range s.peerList {
 		if senderIP == "" || myPeer.peerIP == senderIP {
@@ -174,6 +185,7 @@ func (s *Server) GetBlocks(in *pb.Empty, stream pb.State_GetBlocksServer) error 
 	// This is the only slow part, is building a sorted list
 	orderedBlocks := make([]*pb.Block, len(s.Blockchain.blocks))
 	for _, block := range s.Blockchain.blocks {
+		fmt.Println("Block ", block.Header.Height)
 		orderedBlocks[block.Header.Height-1] = block
 	}
 	for _, block := range orderedBlocks {
@@ -206,6 +218,10 @@ func (s *Server) NewAccount(ctx context.Context, in *pb.Account) (*pb.AccountCre
 
 func (s *Server) GetBalance(ctx context.Context, in *pb.Empty) (*pb.Balance, error) {
 	var balance pb.Balance
+	if s.Wallet.key == nil {
+		fmt.Println("Need to create an account first!")
+		return &balance, nil
+	}
 	balance.Balance = s.Blockchain.getBalance(&s.Wallet.key.PublicKey)
 	return &balance, nil
 }

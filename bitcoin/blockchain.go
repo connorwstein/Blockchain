@@ -78,6 +78,7 @@ func (blockChain Blockchain) getUTXOsToCoverTransaction(key *ecdsa.PrivateKey, d
 
 func (blockChain Blockchain) getBalance(key *ecdsa.PublicKey) uint64 {
 	var balance uint64
+	fmt.Printf("Get balance called for %v\n", key) 
 	for _, utxo := range blockChain.getUTXOs(key) {
 		balance += blockChain.getValueUTXO(utxo)
 	}
@@ -135,7 +136,7 @@ func (blockChain Blockchain) getUTXOs(key *ecdsa.PublicKey) []*UTXO {
 			}
 			for i, outputTX := range transaction.Vout {
 				if bytes.Equal(outputTX.ReceiverPubKey, getPubKeyBytesFromPublicKey(key)) {
-					fmt.Printf("\nReceived %s", getTXOString(outputTX))
+					fmt.Printf("\nReceived %s in transaction %v", getTXOString(outputTX), getTransactionHash(transaction))
 					received = append(received, &UTXO{transaction: transaction,
 						index: i})
 				}

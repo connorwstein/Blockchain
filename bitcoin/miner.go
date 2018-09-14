@@ -40,6 +40,10 @@ func mineBlock(target []byte, block *pb.Block, stop chan struct{}) bool {
 
 func (s *Server) StartMining(ctx context.Context, in *pb.Empty) (*pb.Empty, error) {
 	var reply pb.Empty
+	if s.Wallet.key == nil {
+		fmt.Println("Need to create an account first!")
+		return &reply, nil
+	}
 	go mine(s)
 	return &reply, nil
 }
@@ -86,10 +90,13 @@ func mine(s *Server) {
 		newBlock.Header.MerkleRoot = getMerkleRoot(newBlock.Transactions)
 		// Blocks until mining is complete
 		// Need a way to abort if a new block at the same number is received while mining
+		// TODO: need to support 2 miners
 		result := mineBlock(s.Blockchain.target, &newBlock, s.stopMining)
 		// After mining we cannot modify the block, otherwise its hash will no longer
 		// be valid
 		if result {
+			// With a successfully mined block we can clear the mempool of ONLY the 
+			// transactions we mined (others could have accumulated while we were mining)
 			blockHash := string(getBlockHash(&newBlock))
 			for i := range newBlock.Transactions {
 				delete(s.MemPool.transactions, string(getTransactionHash(newBlock.Transactions[i])))
