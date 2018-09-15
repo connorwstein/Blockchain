@@ -6,7 +6,7 @@
 // The EVM then executes that contract code along with the arguments provided by the transaction
 // which invoked the contract (gas supply, data payload, sender, receiver/contract address, etc.)
 // and the existing contract storage and state (from the last blocks state merkle root)
-package evm
+package main
 
 import (
 	"bufio"
@@ -14,14 +14,18 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	
 	//     "strings"
 )
 
 const (
-	MSG_CALLVALUE = "0a" // Amount of ether sent with the call
-	MSG_DATA = "6d4ce63c" // Call to get()
+	MSG_CALLVALUE = "00" // Amount of ether sent with the call, contract not payable, must be zero
+	MSG_DATA = "6d4ce63c00000000000000000000000000000000000000000000000000000000" // Call to get()
+// 	MSG_DATA_SIZE = "0400000000000000000000000000000000" // Data size is only 4 bytes
+	MSG_DATA_SIZE = "04" // Data size is only 4 bytes
 	WORD_SIZE = 32
 // 	MSG_DATA = 0x2e1a7d4d000000000000000000000000000000000000000000000000000000000000000a // Contains first 4 bytes of keccak hash of the ascii form of the method
 // 				// signature + a single unit8 representing the value to be withdrawn
@@ -38,9 +42,9 @@ const (
 const (
 	// Arithmetic
 	ADD        = 0x01 //Add the top two stack items
-	MUL               //Multiply the top two stack items
-	SUB               //Subtract the top two stack items
-	DIV               //Integer division
+	MUL        = 0x02 //Multiply the top two stack items
+	SUB       = 0x03  //Subtract the top two stack items
+	DIV       = 0x04  //Integer division
 	SDIV              //Signed integer division
 	MOD               //Modulo (remainder) operation
 	SMOD              //Signed modulo operation
@@ -50,7 +54,7 @@ const (
 	SIGNEXTEND        //Extend the length of a two’s complement signed integer
 
 	// Precomipled contract for this?
-	SHA3 //Compute the Keccak-256 hash of a block of memory
+	SHA3 = 0x20 //Compute the Keccak-256 hash of a block of memory
 
 	// Stack
 	POP     = 0x50 //Remove the top item from the stack
@@ -136,6 +140,11 @@ SWAP16 = 0x9f
 
 	// System
 	// 	LOGx          //Append a log record with +x+ topics, where +x+ is any integer from 0 to 4 inclusive
+	LOG0 = 0xa0
+	LOG1 = 0xa1
+	LOG2 = 0xa2
+	LOG3 = 0xa3
+	LOG4 = 0xa4
 	CREATE              //Create a new account with associated code
 	CALL         = 0xf1 //Message-call into another account, i.e. run another account's code
 	CALLCODE     = 0xf2 //Message-call into this account with an another account’s code
@@ -153,7 +162,7 @@ SWAP16 = 0x9f
 	SGT           //Signed greater-than comparison
 	EQ         = 0x14   //Equality comparison
 	ISZERO = 0x15 //Simple not operator
-	AND           //Bitwise AND operation
+	AND    = 0x16       //Bitwise AND operation
 	OR            //Bitwise OR operation
 	XOR           //Bitwise XOR operation
 	NOT           //Bitwise NOT operation
@@ -190,12 +199,24 @@ type OpHandler func(evm *EVM, args []byte)
 
 type OpCode struct {
 	code    byte
+	name    string
 	numArgs int
 	gasCost int
 	handler OpHandler
 }
 
+func (op OpCode) String() string {
+	return op.name
+}
+
 type Word [WORD_SIZE]byte
+
+func (w Word) String() string {
+// 	i := 0
+// 	for i = 0; w[i] == 0 && i < 31; i++ {
+// 	}
+	return hex.EncodeToString(w[:])
+}
 
 func (e *Word) Write(p []byte) (int, error) {
 	n := 0
@@ -218,7 +239,16 @@ func (s *EVMStack) init() {
 
 func (s *EVMStack) push(value Word) {
 	s.stack = append(s.stack, value)
-	log.Printf("Append %v %v", value, s.stack)
+	log.Printf("Append %v stack now %v", value, s.stack)
+}
+
+func (s EVMStack) String() string {
+	var buf bytes.Buffer
+	for i := range s.stack {
+		buf.WriteString(" ")
+		buf.WriteString(s.stack[i].String())
+	}
+	return buf.String()
 }
 
 func (s *EVMStack) pop() (Word, error) {
@@ -254,49 +284,144 @@ type EVM struct {
 	memory  *EVMMem // mstore/mload, freshly cleared per message call, expanded when accessing a previously untouched word
 	opCodes map[byte]OpCode
 	pc int // pointer to the next instruction 
+	jump bool // flag indicating a jump just happened
 }
 
 func (evm *EVM) init() {
 	evm.stack.init()
 	evm.memory.init()
 	evm.opCodes = make(map[byte]OpCode)
-	evm.opCodes[ADD] = OpCode{ADD, 0, 3, add}
-	evm.opCodes[CALLVALUE] = OpCode{CALLVALUE, 0, 2, callValue}
-	evm.opCodes[MSTORE] = OpCode{MSTORE, 0, 3, mstore}
-	evm.opCodes[MLOAD] = OpCode{MLOAD, 0, 3, mload}
+
+	evm.opCodes[LOG1] = OpCode{LOG1, "LOG1", 0, 750, log1}
+
+	evm.opCodes[ADD] = OpCode{ADD, "ADD", 0, 3, add}
+	evm.opCodes[SUB] = OpCode{SUB, "SUB", 0, 3, sub}
+	evm.opCodes[CODECOPY] = OpCode{CODECOPY, "CODECOPY", 0, 3, codeCopy}
+	evm.opCodes[CALLVALUE] = OpCode{CALLVALUE, "CALLVALUE", 0, 2, callValue}
+	evm.opCodes[MSTORE] = OpCode{MSTORE, "MSTORE", 0, 3, mstore}
+	evm.opCodes[MLOAD] = OpCode{MLOAD, "MLOAD", 0, 3, mload}
 
 	for i := 0; i < 32; i++ {
-		evm.opCodes[byte(PUSH1 + i)] = OpCode{byte(PUSH1 + i), i + 1, 3, push}
+		evm.opCodes[byte(PUSH1 + i)] = OpCode{byte(PUSH1 + i), fmt.Sprintf("PUSH%d", i +1), i + 1, 3, push}
 	}
 
 	for i := 0; i < 16; i++ {
-		evm.opCodes[byte(DUP1 + i)] = OpCode{byte(DUP1 + i), 0, 3, dup}
+		evm.opCodes[byte(DUP1 + i)] = OpCode{byte(DUP1 + i), fmt.Sprintf("DUP%d", i+1), 0, 3, dup}
 	}
 
 	for i := 0; i < 16; i++ {
-		evm.opCodes[byte(SWAP1 + i)] = OpCode{byte(SWAP1 + i), 0, 3, swap}
+		evm.opCodes[byte(SWAP1 + i)] = OpCode{byte(SWAP1 + i), fmt.Sprintf("SWAP%d", i+1), 0, 3, swap}
 	}
 
-	evm.opCodes[ISZERO] = OpCode{ISZERO, 0, 3, iszero}
-	evm.opCodes[JUMPI] = OpCode{JUMPI, 0, 10, jumpi}
-	evm.opCodes[JUMPDEST] = OpCode{JUMPDEST, 0, 1, nil}
-	evm.opCodes[REVERT] = OpCode{REVERT, 0, 0, revert}
-	evm.opCodes[POP] = OpCode{CALLVALUE, 0, 2, pop}
-	evm.opCodes[CALLDATASIZE] = OpCode{CALLVALUE, 0, 2, callDataSize}
+	evm.opCodes[ISZERO] = OpCode{ISZERO, "ISZERO", 0, 3, iszero}
+	evm.opCodes[JUMPI] = OpCode{JUMPI,"JUMPI", 0, 10, jumpi}
+	evm.opCodes[JUMP] = OpCode{JUMP,"JUMP", 0, 8, jump}
+	evm.opCodes[JUMPDEST] = OpCode{JUMPDEST,"JUMPDEST", 0, 1, jumpdst}
+	evm.opCodes[REVERT] = OpCode{REVERT,"REVERT", 0, 0, revert}
+	evm.opCodes[POP] = OpCode{POP,"POP", 0, 2, pop}
+	evm.opCodes[CALLDATASIZE] = OpCode{CALLDATASIZE, "CALLDATASIZE", 0, 2, callDataSize}
 	// 	evm.opCodes[DATAOFFSET] = OpCode{CALLVALUE, 0, 2, callValue} seems to be a mystery
-	evm.opCodes[CODECOPY] = OpCode{CODECOPY, 0, 3, codeCopy}
-	evm.opCodes[RETURN] = OpCode{RETURN, 0, 0, returnF}
-	evm.opCodes[STOP] = OpCode{STOP, 0, 0, nil}
-	evm.opCodes[CALLDATALOAD] = OpCode{CALLDATALOAD, 0, 3, callDataLoad}
-	evm.opCodes[LT] = OpCode{LT, 0, 3, lt} // check whether top stack item is lt the second item
-	evm.opCodes[EQ] = OpCode{EQ, 0, 3, eq} 
-	evm.opCodes[GT] = OpCode{GT, 0, 3, gt} 
+	evm.opCodes[CODECOPY] = OpCode{CODECOPY, "CODECOPY", 0, 3, codeCopy}
+	evm.opCodes[RETURN] = OpCode{RETURN,"RETURN", 0, 0, returnF}
+	evm.opCodes[STOP] = OpCode{STOP,"STOP", 0, 0, nil}
+	evm.opCodes[CALLDATALOAD] = OpCode{CALLDATALOAD, "CALLDATALOAD", 0, 3, callDataLoad}
+	evm.opCodes[LT] = OpCode{LT, "LT", 0, 3, lt} // check whether top stack item is lt the second item
+	evm.opCodes[EQ] = OpCode{EQ, "EQ", 0, 3, eq} 
+	evm.opCodes[GT] = OpCode{GT, "GT", 0, 3, gt} 
 
-	// we need push, mstore, push1, calldatasize, lt, jumpi, calldataload
-	// push29, swap1, div, push4, and, dup1, eq, revert, mload
-	// dup2, dup3, swap2, sub, return, log1, push6, sha3, push15, codecopy
-	// dup9, swap11
+	evm.opCodes[DIV] = OpCode{DIV, "DIV", 0, 5, div} 
+	evm.opCodes[SHA3] = OpCode{SHA3, "SHA3", 0, 30, sha3} 
+	evm.opCodes[AND] = OpCode{AND, "AND", 0, 3, and} 
+
+	// Missing is revert, div, codecopy, log1 and sha3
 	evm.pc = 0
+}
+
+func log1(evm *EVM, args []byte) {
+	log.Printf("Log 1")
+}
+
+func codeCopy(evm *EVM, args []byte) {
+	// Copy the code to memory
+	log.Printf("Copying code to memory")
+}
+
+func sub(evm *EVM, args []byte) {
+	// Pop two items from the stack, subtract them and push the result on the stack
+	// (full words)
+	val1, err1 := evm.stack.pop()
+	val2, err2 := evm.stack.pop()
+	if err1 != nil || err2 != nil {
+		log.Printf("Error in execution invalid evm program")
+	}
+	// Add two values. The sum should not be larger than a 64-bit (8 byte int)
+	// or there is something corrupted on the stack
+	// most of the time this would be like a push1 push1 add meaning
+	// only the last byte of each word actually has the number
+	x1 := binary.BigEndian.Uint64(val1[24:])
+	x2 := binary.BigEndian.Uint64(val2[24:])
+	var element Word
+ 	binary.Write(&element, binary.BigEndian, x1 - x2)
+	evm.stack.push(element)
+}
+
+
+func jumpdst(evm *EVM, args []byte) {
+	log.Println("In jumpdst, noop")
+}
+
+func div(evm *EVM, args []byte) {
+	// div stack[0] / stack[1] push result
+	// stack[1] should be some multiple of 16 meaning some byte is a 1 
+	// find the index of this byte and do a right shift of stack[0] byte that amount
+	// OR just read up until you find the 1 in stack[1] (cheating a bit)
+	if len(evm.stack.stack) < 2 {
+		panic("Stack underflow")
+	}
+	numerator, _ := evm.stack.pop()
+	denominator, _ := evm.stack.pop()
+	res := make([]byte, 0)
+	// Loop until we hit a 1 in the denominator, then copy everything after that 
+	i := 0
+	for i = len(denominator) - 1; i >=  0 && denominator[i] == 0; i-- {
+	}
+	// last byte (includes the 1)
+	if i > 0 {
+		for j := 0; j <= i; j++ {
+			res = append(res, numerator[j])
+		}
+	}
+	var data Word	
+ 	binary.Write(&data, binary.BigEndian, res)
+	evm.stack.push(data)
+}
+
+func sha3(evm *EVM, args []byte) {
+}
+
+func jump(evm *EVM, args []byte) {
+	// Set the program counter to first itm on the stack 
+	if len(evm.stack.stack) < 1 {
+		panic("Stack underflow")
+	}
+	v, _ := evm.stack.pop()
+	x1 := binary.BigEndian.Uint64(v[24:])
+	log.Printf("Jumping to %v\n", int(x1))
+	evm.pc = int(x1)
+}
+
+func and(evm *EVM, args []byte) {
+	// bitwise and stack[0] and stack[1] push result
+	if len(evm.stack.stack) < 2 {
+		panic("Stack underflow")
+	}
+	x1, _ := evm.stack.pop()
+	x2, _ := evm.stack.pop()
+	var res Word
+	for i := range x1 {
+		res[i] = x1[i] & x2[i]
+	}
+	evm.stack.push(res)
 }
 
 func hexStringToWord(hexString string) Word {
@@ -359,6 +484,8 @@ func gt(evm *EVM, args []byte) {
 
 func callDataLoad(evm *EVM, args []byte) {
 	// push 32 bytes (padded if less onto the stack) 
+	// first item on the stack is the offset with with to read the msg data
+	evm.stack.pop() // don't use index right now
 	evm.stack.push(hexStringToWord(MSG_DATA))
 }
 
@@ -370,9 +497,7 @@ func callValue(evm *EVM, args []byte) {
 }
 
 func returnF(evm *EVM, args []byte) {
-}
-
-func codeCopy(evm *EVM, args []byte) {
+	log.Printf("Return stack values %v\n", evm.stack)
 }
 
 func mstore(evm *EVM, args []byte) {
@@ -428,7 +553,11 @@ func jumpi(evm *EVM, args []byte) {
 	}
 	if !bytes.Equal(cond[:], make([]byte, WORD_SIZE)) {
 		evm.pc = int(binary.BigEndian.Uint64(dst[24:]))
-	} 
+		evm.jump = true
+		log.Printf("JUMPI condition is TRUE jumping to %d", evm.pc)
+	} else {
+		log.Printf("JUMPI condition is FALSE")
+	}
 }
 
 func revert(evm *EVM, args []byte) {
@@ -443,6 +572,7 @@ func pop(evm *EVM, args []byte) {
 }
 
 func callDataSize(evm *EVM, args []byte) {
+	evm.stack.push(hexStringToWord(MSG_DATA_SIZE))
 }
 
 func push(evm *EVM, args []byte) {
@@ -564,7 +694,7 @@ func (evm *EVM) handleOp(evmProgram []byte) error {
 		log.Print("Unknown op code")
 		return InvalidOpError{"Invalid op code"}
 	}
-	log.Printf("op code found %x", op.code)
+	log.Printf("OP: %v %x at index %d", op, op.code, evm.pc)
 	nextInstruction := evm.pc + op.numArgs + 1
 	// get however many arguments this op needs and call its function
 	// for push/swap/dup add the family index
@@ -577,18 +707,19 @@ func (evm *EVM) handleOp(evmProgram []byte) error {
 	op.handler(evm, args)
 	// if the op is a jump or something that manipulates the pc 
 	// don't deal with it as that handler will update the pc
-	if op.code != JUMPI {
+	if op.code != JUMPI && op.code != JUMP {
 		evm.pc = nextInstruction
 	} else {
 		// if it is a jump just make sure dst is a jumpdest
 		// jumpdest's should always be jumped to,
 		// we shouldn't be reading a jumpdest randomly
-		if evm.opCodes[evmProgram[evm.pc]].code != JUMPDEST {
-			return InvalidOpError{"Jumped to a non-jump dest"}
+		if evm.jump && evm.opCodes[evmProgram[evm.pc]].code != JUMPDEST {
+			return InvalidOpError{fmt.Sprintf("Jumped to a non-jump dest %d instruction there is %s", evm.pc, evm.opCodes[evmProgram[evm.pc]] )}
 		} else {
 			// all is well, skip to after the jumpdest instruction
 			evm.pc += 1
 		}
+		evm.jump = false
 	}
 	return nil
 }
@@ -602,7 +733,15 @@ func (evm EVM) execute(evmProgram []byte) {
 		// stop instruction or reach the end of the program
 		// handleOp will update the pc
 		if evm.opCodes[evmProgram[evm.pc]].code == STOP {
-			log.Printf("Execution stopped by stop instruction")
+			log.Printf("Execution stopped by stop instruction at index %d\n", evm.pc)
+			break
+		}
+		if evm.opCodes[evmProgram[evm.pc]].code == RETURN {
+			log.Printf("Execution hit return at index %d stack %v\n", evm.pc, evm.stack)
+			break
+		}
+		if evm.opCodes[evmProgram[evm.pc]].code == REVERT {
+			log.Printf("Execution hit revert at index %d stack %v\n", evm.pc, evm.stack)
 			break
 		}
 		err := evm.handleOp(evmProgram)
