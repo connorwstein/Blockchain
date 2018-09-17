@@ -81,7 +81,9 @@ docker exec -it alice bash
            go run client/client.go wallet -get=balance 
            8
            // Now we can spend our 8 coin however we want, miner2 will validate it and broadcast the block 
+```
 
+```
 terminal4: docker exec -it connor bash
            ./builds.sh
            ./bitcoin &> /tmp/log &
@@ -91,7 +93,7 @@ terminal4: docker exec -it connor bash
            go run client/client.go wallet -get=balance 
            8
            // Now we can spend our 8 coin however we want, miner2 will validate it and broadcast the block 
-
+```
 
 ###### Implementation does not include
 - Handling temporary forks and switching to longest chain if for example a secondary chain becomes longer (although the data structures are present to support this - see tipsOfChains)
