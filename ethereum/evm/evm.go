@@ -737,7 +737,10 @@ func (evm EVM) execute(evmProgram []byte) {
 			break
 		}
 		if evm.opCodes[evmProgram[evm.pc]].code == RETURN {
-			log.Printf("Execution hit return at index %d stack %v\n", evm.pc, evm.stack)
+			// return value is at the address in memory at the top of the stack
+			log.Printf("Execution hit return at index %d stack %v memory %v storage %v len mem %v\n", evm.pc, evm.stack, evm.memory, evm.storage, len(evm.memory.mem))
+			address, _ := evm.stack.pop() // pops a word
+			log.Printf("Return value at address %v is %v\n", address[31], evm.memory.mem[address[31]][31])
 			break
 		}
 		if evm.opCodes[evmProgram[evm.pc]].code == REVERT {
