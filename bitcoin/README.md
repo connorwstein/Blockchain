@@ -49,10 +49,12 @@ go run client/client.go send -dest=<address> -amount=<amount> // Create a transa
 ~~~
 
 Example
+
 terminal1: 
 ```
 docker-compose up
 ```
+
 terminal2: 
 ```
 docker exec -it miner2 bash
@@ -83,8 +85,9 @@ docker exec -it alice bash
            // Now we can spend our 8 coin however we want, miner2 will validate it and broadcast the block 
 ```
 
+terminal4:
 ```
-terminal4: docker exec -it connor bash
+docker exec -it connor bash
            ./builds.sh
            ./bitcoin &> /tmp/log &
            go run client/client.go new -name=connor // Create a wallet
@@ -117,5 +120,3 @@ terminal4: docker exec -it connor bash
 - A full node + creation of new blocks
 - Aggregate transactions from the mempool, attempting to mine for mining rewards
 - If successful in mining a block, update the mempool and broadcast the new block.
-
- If successful in mining a block, update the mempool and broadcast the new block.
