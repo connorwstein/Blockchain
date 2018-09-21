@@ -29,8 +29,8 @@ const (
 	MLOAD   = 0x51 //Load a word from memory
 	MSTORE  = 0x52 //Save a word to memory
 	MSTORE8        //Save a byte to memory
-	SLOAD          //Load a word from storage
-	SSTORE         //Save a word to storage
+	SLOAD   = 0x54  //Load a word from storage
+	SSTORE  = 0x55 //Save a word to storage
 	MSIZE          //Get the size of the active memory in bytes
 	// 	PUSHx   //Place x-byte item on the stack, where x can be any integer from 1 to 32 (full word) inclusive
 	PUSH1  = 0x60
@@ -175,6 +175,9 @@ func opCodeInit() map[byte]OpCode {
 	opCodes[MSTORE] = OpCode{MSTORE, "MSTORE", 0, 3, mstore}
 	opCodes[MLOAD] = OpCode{MLOAD, "MLOAD", 0, 3, mload}
 
+	opCodes[SSTORE] = OpCode{SSTORE, "SSTORE", 0, 20000, sstore}
+	opCodes[SLOAD] = OpCode{SLOAD, "SLOAD", 0, 200, sload}
+
 	for i := 0; i < 32; i++ {
 		opCodes[byte(PUSH1+i)] = OpCode{byte(PUSH1 + i), fmt.Sprintf("PUSH%d", i+1), i + 1, 3, push}
 	}
@@ -207,6 +210,33 @@ func opCodeInit() map[byte]OpCode {
 	opCodes[SHA3] = OpCode{SHA3, "SHA3", 0, 30, sha3}
 	opCodes[AND] = OpCode{AND, "AND", 0, 3, and}
 	return opCodes
+}
+
+func sstore(evm *EVM, args []byte) {
+	// pop two values on the stack, first one is the address/key of where we store stuff in storage 
+	// second is the actual value we put in there
+	address, err1 := evm.stack.pop()
+	val, err2 := evm.stack.pop()
+	if err1 != nil || err2 != nil {
+		panic("Error in execution, mstore invalid")
+	}
+// 	addressVal := binary.BigEndian.Uint64(address[24:])
+	log.Printf("SSTORE value %v in %v", val, address)
+// 	evm.memory.grow(int(addressVal) + 1)
+	evm.storage[address] = val
+}
+
+func sload(evm *EVM, args[]byte) {
+	// pop address from the stack and load value with that address, push on the stack
+	address, err1 := evm.stack.pop()
+	if err1 != nil {
+		panic("Error in execution, mload invalid")
+	}
+// 	addressVal := binary.BigEndian.Uint64(address[24:])
+// 	if addressVal >= uint64(len(evm.memory.mem)) {
+// 		panic("Try to load out of bounds address")
+// 	}
+	evm.stack.push(evm.storage[address])
 }
 
 func log1(evm *EVM, args []byte) {
@@ -268,6 +298,7 @@ func div(evm *EVM, args []byte) {
 }
 
 func sha3(evm *EVM, args []byte) {
+	log.Printf("SHA3 \n")
 }
 
 func jump(evm *EVM, args []byte) {

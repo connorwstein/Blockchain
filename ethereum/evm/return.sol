@@ -1,6 +1,6 @@
 pragma solidity ^0.4.0;
 
-contract SimpleStorage {
+contract Return {
 //     uint storedData;
     
     // 60fe47b16ed402aae66ca03d2bfc51478ee897c26a1158669c7058d5f24898f4

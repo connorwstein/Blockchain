@@ -18,6 +18,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 )
 
 type ContractCall struct {
@@ -25,10 +26,12 @@ type ContractCall struct {
 	CallValue    string `json:"callValue"`
 	CallData     string `json:"callData"`
 	CallDataSize string `json:"callDataSize"`
+	Gas 		 string `json:"gas"`
 }
 
 const (
 	WORD_SIZE = 32
+	MAX_STACK_SIZE = 1024
 )
 
 type OutOfGasError struct {
@@ -100,6 +103,7 @@ func (m *EVMMem) init() {
 }
 
 func (m *EVMMem) grow(desiredSize int) {
+// 	if desiredSize > 
 	if desiredSize < len(m.mem) {
 		return
 	}
@@ -123,7 +127,7 @@ func (op OpCode) String() string {
 type EVM struct {
 	stack *EVMStack
 	// This memory just grows as needed
-	storage map[byte]byte // persistent key-value mappings sstore/ssload
+	storage map[Word]Word // persistent key-value mappings sstore/ssload, actually stored on-chain
 	// Sort of like registers:
 	memory  *EVMMem // mstore/mload, freshly cleared per message call, expanded when accessing a previously untouched word
 	opCodes map[byte]OpCode
@@ -134,8 +138,10 @@ type EVM struct {
 
 func (evm *EVM) init() {
 	evm.stack.init()
-	evm.memory.init()
+	evm.memory.init() // can grow indefinitely
 	evm.opCodes = opCodeInit()
+	evm.storage = make(map[Word]Word) // can grow indefinitely
+	// just becomes expensive
 	// Missing codecopy, log1 and sha3
 	evm.pc = 0
 }
@@ -211,24 +217,31 @@ func (evm *EVM) handleOp(evmProgram []byte) error {
 // Walk through the bytes interpreting the opcodes
 // TODO: stop if we run out of gas
 func (evm EVM) execute(evmProgram []byte) {
-	// Need to support the program counter and jumps
+	gasUse := 0
 	for evm.pc < len(evmProgram) {
 		// Break if we run out of gas or read a
 		// stop instruction or reach the end of the program
 		// handleOp will update the pc
-		if evm.opCodes[evmProgram[evm.pc]].code == STOP {
-			log.Printf("Execution stopped by stop instruction at index %d\n", evm.pc)
+		op := evm.opCodes[evmProgram[evm.pc]]
+		if op.code == STOP {
+			log.Printf("Execution stopped by stop instruction at index %d total gas use %d storage %v\n", evm.pc, gasUse, evm.storage)
 			break
 		}
-		if evm.opCodes[evmProgram[evm.pc]].code == RETURN {
+		if op.code == RETURN {
 			// return value is at the address in memory at the top of the stack
-			log.Printf("Execution hit return at index %d stack %v memory %v storage %v len mem %v\n", evm.pc, evm.stack, evm.memory, evm.storage, len(evm.memory.mem))
+			log.Printf("Execution hit return at index %d gas use %d stack %v memory %v storage %v len mem %v\n", evm.pc, gasUse, evm.stack, evm.memory, evm.storage, len(evm.memory.mem))
 			address, _ := evm.stack.pop() // pops a word
 			log.Printf("Return value at address %v is %v\n", address[31], evm.memory.mem[address[31]][31])
 			break
 		}
-		if evm.opCodes[evmProgram[evm.pc]].code == REVERT {
-			log.Printf("Execution hit revert at index %d stack %v\n", evm.pc, evm.stack)
+		if op.code == REVERT {
+			log.Printf("Execution hit revert at index %d  gas use %d stack %v\n", evm.pc, gasUse, evm.stack)
+			break
+		}
+		gasUse += op.gasCost
+		totalGas, _ := strconv.Atoi(evm.call.Gas)
+		if gasUse > totalGas {
+			log.Printf("Out of gas exception, used more than the provided %v\n", evm.call.Gas)
 			break
 		}
 		err := evm.handleOp(evmProgram)
