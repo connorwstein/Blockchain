@@ -35,3 +35,5 @@ for i, c in enumerate(ciphertexts):
 
 for w in res:
     print(w)
+
+print(strxor(strxor("attack at dawn", "09e1c5f70a65ac519458e7e53f36".decode('hex')), "attack at dusk").encode('hex'))
